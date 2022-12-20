@@ -1,0 +1,15 @@
+[tool.poetry]
+name = "final-year-project"
+version = "0.1.0"
+description = ""
+authors = ["\"Edvard J. Skaarberg Holen\""]
+readme = "README.md"
+packages = [{include = "final_year_project"}]
+
+[tool.poetry.dependencies]
+python = "^3.10"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
