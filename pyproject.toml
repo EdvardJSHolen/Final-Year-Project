@@ -8,7 +8,14 @@ packages = [{include = "final_year_project"}]
 
 [tool.poetry.dependencies]
 python = "^3.10"
+matplotlib = "^3.6.2"
+#gluonts = "0.9.0" # Need to use specific version due to bug in pytorchts, can be removed after update has been released
+ipykernel = "^6.19.4"
+pytorchts = {git = "https://github.com/zalandoresearch/pytorch-ts"}
+gluonts = "^0.11.6"
 
+[tool.poetry.group.dev.dependencies]
+ipywidgets = "^8.0.3"
 
 [build-system]
 requires = ["poetry-core"]
