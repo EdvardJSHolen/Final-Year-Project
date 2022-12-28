@@ -1,0 +1,22 @@
+[tool.poetry]
+name = "timegrad"
+version = "0.1.0"
+description = ""
+authors = ["Your Name <you@example.com>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = ">=3.8,<3.11"
+gluonts = "0.9.0"
+pytorchts = "^0.6.0"
+ipykernel = "^6.19.4"
+numpy = "1.21.6"
+ujson = "^5.6.0"
+
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+#pytorchts = {git = "https://github.com/zalandoresearch/pytorch-ts", rev = "81be06b"}
