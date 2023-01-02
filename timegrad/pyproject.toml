@@ -8,10 +8,11 @@ readme = "README.md"
 [tool.poetry.dependencies]
 python = ">=3.8,<3.11"
 gluonts = "0.9.0"
-mxnet = "^1.9.1"
 pytorchts = "^0.6.0"
 ipykernel = "^6.19.4"
 numpy = "1.21.6"
+ujson = "^5.6.0"
+#pandas = "1.3.5" # Can remove, just trying to remove error
 
 
 [build-system]
