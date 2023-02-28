@@ -57,9 +57,9 @@ class PositionalEncoding(nn.Module):
         """
     
         # Assertions to ensure correct usage
-        assert(num_sines % 2 == 0, "'num_sines' must be an even number")
-        assert(all(0 <= idx < datapoint_dim for idx in indices), "'indices' are out of range")
-        assert(all(0 <= idx < datapoint_dim for idx in timestamps), "'timestamps' are out of range")
+        assert num_sines % 2 == 0, "'num_sines' must be an even number"
+        assert all(0 <= idx < datapoint_dim for idx in indices), "'indices' are out of range"
+        assert all(0 <= idx < datapoint_dim for idx in timestamps), "'timestamps' are out of range"
 
         # Init nn.Module base class
         super().__init__()
@@ -95,16 +95,18 @@ class PositionalEncoding(nn.Module):
 
         # Encode all indices with cos/sine waves (identical implementation to vanilla transformer sine encodings)
         offset = len(unchanged_idx)
-        for i in range(self.num_sines / 2):
-            out[:,:,:,offset:offset + 1] = torch.sin(source[:,:,:,self.indices]/(10000**(2*i/self.num_sines)))
-            out[:,:,:,offset:offset + 2] = torch.cos(source[:,:,:,self.indices]/(10000**(2*i/self.num_sines)))
-            offset += 2*len(self.indices)
+        for i in range(self.num_sines // 2):
+            out[:,:,:,offset:offset + len(self.indices)] = torch.sin(source[:,:,:,self.indices]/(10000**(2*i/self.num_sines)))
+            offset += len(self.indices)
+            out[:,:,:,offset:offset + len(self.indices)] = torch.cos(source[:,:,:,self.indices]/(10000**(2*i/self.num_sines)))
+            offset += len(self.indices)
 
         # Encode all timestamps with cos/sine waves
         for per in self.time_per:
-            out[:,:,:,offset:offset + 1] = torch.sin(source[:,:,:,self.timestamps]*(2*pi/per))
-            out[:,:,:,offset:offset + 2] = torch.cos(source[:,:,:,self.timestamps]*(2*pi/per))
-            offset += 2*len(self.timestamps)
+            out[:,:,:,offset:offset + len(self.timestamps)] = torch.sin(source[:,:,:,self.timestamps]*(2*pi/per))
+            offset += len(self.timestamps)
+            out[:,:,:,offset:offset + len(self.timestamps)] = torch.cos(source[:,:,:,self.timestamps]*(2*pi/per))
+            offset += len(self.timestamps)
 
         return out
 
@@ -117,9 +119,27 @@ class PositionalEncoding(nn.Module):
 
 
 # Embedding
+class Embedding(nn.Module):
+
+    def __init__(
+            self,
+            device: torch.device = "cpu",
+            ):
+        
+        # Init nn.Module base class
+        super().__init__()
+
+        # Set instance variables
+        self.device = device
+
+    def forward():
+        return
+        #(N, S, E) if batch_first=True
+        # NOTE! Must use batch_first=True for Transformer to work with how PositionalEncoding is implemented
+
 
 # TODO:
-# 1. Find out where it is beneficial to add @torch.no_grad() decorator
+# 1. Investigate where it is beneficial to add @torch.no_grad() decorator
 
 # NOTE:
 # 1. Definitiely should use @torch.no_grad() when measuring inference as this avoids the tracking of gradients, making it faster.
