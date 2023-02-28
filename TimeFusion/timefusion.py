@@ -12,8 +12,29 @@ class TimeFusion(nn.Module):
 
     def __init__(
             self,
-            device: torch.device = "cpu",
-            ):
+            datapoint_dim: int,
+            indices: List[int] = [], 
+            timestamps: List[int] = [],
+            d_model: int = 32, 
+            nhead: int = 8, 
+            num_encoder_layers: int = 6,
+            num_decoder_layers: int = 6, 
+            dim_feedforward: int = 128,
+            device: torch.device = torch.device("cpu"),
+        ):
+        
+        """
+        Args:
+            datapoint_dim: The number of elements in a single datapoint
+            indices: Elements of datapoints to be encoded with sine/cos waves of arbitrary frequency
+            timestamps: Elements of datapoints containing timestamps to be encoded with sine/cos waves.
+            d_model: The number of features in the encoder/decoder inputs
+            nhead: The number of heads in the multi-head attention
+            num_encoder_layers: The number of sub-encoder-layers in the encoder
+            num_decoder_layers: The number of sub-decoder-layers in the decoder
+            dim_feedforward: The dimension of the feedforward network model in Transformer
+            device: The device on which computations should be performed (e.g. "cpu" or "cuda0")
+        """
         
         # Init nn.Module base class
         super().__init__()
@@ -21,10 +42,68 @@ class TimeFusion(nn.Module):
         # Set instance variables
         self.device = device
 
-    def forward(self):
-        return
-        #(N, S, E) if batch_first=True
-        # NOTE! Must use batch_first=True for Transformer to work with how PositionalEncoding is implemented
+        self.encoding = PositionalEncoding(
+            datapoint_dim = datapoint_dim,
+            indices = indices,
+            timestamps = timestamps,
+            device = device,
+        )
+
+        self.embedding = Embedding(
+            input_size = self.encoding.encoding_dim,
+            output_size = d_model,
+            device = device
+        )
+
+        self.transformer = nn.Transformer(
+            d_model = d_model,
+            nhead = nhead,
+            num_encoder_layers = num_encoder_layers,
+            num_decoder_layers = num_decoder_layers, 
+            dim_feedforward = dim_feedforward,
+            batch_first=True,
+            device = device
+        )
+
+        self.linear = nn.Linear(d_model, 1, device=device)
+
+    def forward(self, context: Tensor, queries: Tensor) -> Tensor:
+        """
+        Args:
+            context: Input Tensor with shape [batch_size, num time-series, context length, datapoint dim]
+            queries: Input Tensor with shape [batch_size, num time-series, prediction length, datapoint dim]
+        Returns:
+            output Tensor of shape [batch_size, num time-series, prediction length]
+        """
+
+        # Store original shape of queries
+        query_shape = queries.shape
+
+        # Embed encoder inputs
+        context = self.encoding(context) 
+        context = self.embedding(context)
+
+        # Embed decoder inputs
+        queries = self.encoding(queries)
+        queries = self.embedding(queries)
+
+        # Flatten context and query embeddings
+        context = torch.flatten(context, start_dim=1, end_dim=2)
+        queries = torch.flatten(queries, start_dim=1, end_dim=2)
+
+        # Pass encoder and decoder inputs to Transformer
+        x = self.transformer(
+            src = context,
+            tgt = queries,
+        )
+        
+        # Pass Transformer outputs through linear layer
+        x = self.linear(x)
+
+        # Reshape output to correct shape
+        x = x.reshape(query_shape[:-1])
+
+        return x
 
 
 # Sine/cos wave encodings of indices and timestamps
@@ -33,10 +112,10 @@ class PositionalEncoding(nn.Module):
     def __init__(
             self,
             datapoint_dim: int,
+            indices: List[int], 
+            timestamps: List[int],
             device: torch.device,
-            indices: List[int] = [], 
-            timestamps: List[int] = [],
-            num_sines: int = 128,
+            num_sines: int = 64,
             time_per: List[float] = [
                 timedelta(milliseconds=1).total_seconds()*1000,
                 timedelta(seconds=1).total_seconds()*1000,
@@ -51,9 +130,9 @@ class PositionalEncoding(nn.Module):
         """
         Args:
             datapoint_dim: The number of elements in a single datapoint
-            device: The device for which returned Tensor should be created (e.g. "cpu" or "cuda0")
             indices: Elements of datapoints to be encoded with sine/cos waves of arbitrary frequency
             timestamps: Elements of datapoints containing timestamps to be encoded with sine/cos waves.
+            device: The device for which returned Tensor should be created (e.g. "cpu" or "cuda0")
             num_sines: Total number of sine and cosine waves used to encode indices
             time_per: Period (in millis) of sine/cos waves used to encode timestamps
         """
@@ -130,7 +209,7 @@ class Embedding(nn.Module):
             output_size: int,
             device: torch.device,
             hidden_size: int = 64,
-            ):
+        ):
         """
         Args:
             input_size: Last dimension of input Tensor
@@ -146,11 +225,11 @@ class Embedding(nn.Module):
         self.device = device
         self.input_size = input_size
         self.output_size = output_size
-        self.fc1 = nn.Linear(input_size, hidden_size)
-        self.fc2 = nn.Linear(hidden_size, output_size)
+        self.fc1 = nn.Linear(input_size, hidden_size, device=device)
+        self.fc2 = nn.Linear(hidden_size, output_size, device=device)
 
 
-    def forward(self, source):
+    def forward(self, source: Tensor) -> Tensor:
         """
         Args:
             source: Input Tensor with shape [batch_size, num time-series, num datapoints, encoding dim]
@@ -167,6 +246,7 @@ class Embedding(nn.Module):
 # TODO:
 # 1. Investigate where it is beneficial to add @torch.no_grad() decorator
 # 2. Investigate weight initilization for linear layers
+# 3. Split Transformer into encoder and decoder such that I can reduce computation during inference
 
 # NOTE:
 # 1. Definitiely should use @torch.no_grad() when measuring inference as this avoids the tracking of gradients, making it faster.
