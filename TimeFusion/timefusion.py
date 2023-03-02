@@ -1,11 +1,13 @@
 # Library imports
 import torch
+import pandas as pd
 
 # Module imports
-from torch import nn, Tensor
-from typing import List
+from torch import nn, Tensor, optim
+from typing import List, Callable
 from datetime import timedelta
 from math import pi
+from pandas import DataFrame
 
 # Class accessible to end-user
 class TimeFusion(nn.Module):
@@ -20,6 +22,7 @@ class TimeFusion(nn.Module):
             num_encoder_layers: int = 6,
             num_decoder_layers: int = 6, 
             dim_feedforward: int = 128,
+            diff_steps: int = 100,
             device: torch.device = torch.device("cpu"),
         ):
         
@@ -41,6 +44,7 @@ class TimeFusion(nn.Module):
 
         # Set instance variables
         self.device = device
+        self.diff_steps = diff_steps
 
         self.encoding = PositionalEncoding(
             datapoint_dim = datapoint_dim,
@@ -104,6 +108,53 @@ class TimeFusion(nn.Module):
         x = x.reshape(query_shape[:-1])
 
         return x
+
+    # Function to train TimeFusion network
+    def train(self,
+            data: DataFrame, 
+            epochs: int,
+            num_batches_per_epoch: int = 50,
+            batch_size: int = 64,
+            optimizer: optim.Optimizer = optim.Adam(lr=1e-3, weight_decay=1e-6),
+            loss_function: Callable = nn.MSELoss()
+        ) -> None:
+        """
+        Args:
+            data: Pandas DataFrame with timestamps as the index and a column for each time-series. Cells should be filled with
+            nan-values when a time-series does not have a datapoint at a given timestamp.
+            epochs: The number of epochs to train for.
+            num_batches_per_epoch: The number of batches to train on in a given epoch.
+            batch_size: The number of samples to process at the same time.
+            optimizer: Optimizer used to train weights
+            loss_function: Function to measure how well predictions match targets.
+        """
+        
+        # Batch generator
+        data_loader = 0
+
+        for epoch in range(1, epochs + 1):
+
+            running_loss = 0
+            for i, batch in enumerate(data_loader, start = 1):
+                # Split data into context, queries and prediction targets
+                context, queries, targets = batch
+
+                # Zero gradients
+                optimizer.zero_grad()
+
+                # Forward, loss calculation, backward, optimizer step
+                predictions = self.forward(context,queries)
+                loss = loss_function(predictions,targets)
+                loss.backward()
+                optimizer.step()
+
+                # Print training statistics
+                average_loss = running_loss / epoch
+                stat_string = "|" + "="*(30*epoch // epochs) + " "*(30 - (30*epoch // epochs)) + f"|  Batch: {i} / {num_batches_per_epoch}, Epoch: {epoch} / {epochs}, Average Loss: {average_loss:.3f}"
+                print("\u007F"*512,"\r",stat_string, end="\r")
+
+            # New line for printing statistics
+            print()
 
 
 # Sine/cos wave encodings of indices and timestamps
@@ -247,6 +298,11 @@ class Embedding(nn.Module):
 # 1. Investigate where it is beneficial to add @torch.no_grad() decorator
 # 2. Investigate weight initilization for linear layers
 # 3. Split Transformer into encoder and decoder such that I can reduce computation during inference
+# 4. Normalize input data?
+# 5. Definitely need to speed up Transformers, must reduce input length or use a more efficient attention mechanism
+# 6. Weight decay?
+# 7. Use learning rate scheduler
+# 8. Figure out how to define "epoch" for time-series data
 
 # NOTE:
-# 1. Definitiely should use @torch.no_grad() when measuring inference as this avoids the tracking of gradients, making it faster.
+# 1. Definitiely should use @torch.no_grad() when measuring inference as this avoids the tracking of gradients, making it 6! times faster
