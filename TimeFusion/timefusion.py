@@ -8,6 +8,7 @@ from typing import List, Callable
 from datetime import timedelta
 from math import pi
 from pandas import DataFrame
+from diffusion import batch_loader
 
 # Class accessible to end-user
 class TimeFusion(nn.Module):
@@ -15,6 +16,8 @@ class TimeFusion(nn.Module):
     def __init__(
             self,
             datapoint_dim: int,
+            context_length: int,
+            prediction_length: int,
             indices: List[int] = [], 
             timestamps: List[int] = [],
             d_model: int = 32, 
@@ -43,6 +46,8 @@ class TimeFusion(nn.Module):
         super().__init__()
 
         # Set instance variables
+        self.context_length = context_length
+        self.prediction_length = prediction_length
         self.device = device
         self.diff_steps = diff_steps
 
@@ -113,9 +118,9 @@ class TimeFusion(nn.Module):
     def train(self,
             data: DataFrame, 
             epochs: int,
-            num_batches_per_epoch: int = 50,
             batch_size: int = 64,
-            optimizer: optim.Optimizer = optim.Adam(lr=1e-3, weight_decay=1e-6),
+            num_batches_per_epoch: int = 50,
+            optimizer: optim.Optimizer = None,
             loss_function: Callable = nn.MSELoss()
         ) -> None:
         """
@@ -128,9 +133,19 @@ class TimeFusion(nn.Module):
             optimizer: Optimizer used to train weights
             loss_function: Function to measure how well predictions match targets.
         """
+
+        # Set default optimizer
+        if optimizer is None:
+            optimizer = optim.Adam(params=self.parameters(),lr=1e-3, weight_decay=1e-6)
         
         # Batch generator
-        data_loader = 0
+        data_loader = batch_loader(
+            data = data, 
+            batch_size = batch_size, 
+            num_batches_per_epoch = num_batches_per_epoch, 
+            context_length = self.context_length,
+            prediction_length = self.prediction_length
+        )
 
         for epoch in range(1, epochs + 1):
 
@@ -303,6 +318,7 @@ class Embedding(nn.Module):
 # 6. Weight decay?
 # 7. Use learning rate scheduler
 # 8. Figure out how to define "epoch" for time-series data
+# 9. Refine method of feeding data to network such that we can also feed covariates. Need to think how to represent it in pandas dataframe. Maybe just use tuple entries. Can use multiindex
 
 # NOTE:
 # 1. Definitiely should use @torch.no_grad() when measuring inference as this avoids the tracking of gradients, making it 6! times faster
