@@ -136,18 +136,21 @@ class TimeFusion(nn.Module):
 
         # Set default optimizer
         if optimizer is None:
-            optimizer = optim.Adam(params=self.parameters(),lr=1e-3, weight_decay=1e-6)
+            optimizer = optim.Adam(params=self.parameters(),lr=1e-2)
         
-        # Batch generator
-        data_loader = batch_loader(
-            data = data, 
-            batch_size = batch_size, 
-            num_batches_per_epoch = num_batches_per_epoch, 
-            context_length = self.context_length,
-            prediction_length = self.prediction_length
-        )
 
         for epoch in range(1, epochs + 1):
+
+            # Batch generator. TODO: MAKE INTO AN OBJECT SO I CAN MOVE OUTSIDE OF FOR LOOP
+            data_loader = batch_loader(
+                device = self.device,
+                data = data, 
+                batch_size = batch_size, 
+                num_batches_per_epoch = num_batches_per_epoch, 
+                context_length = self.context_length,
+                prediction_length = self.prediction_length,
+                diff_steps = self.diff_steps
+            )
 
             running_loss = 0
             for i, batch in enumerate(data_loader, start = 1):
@@ -159,14 +162,16 @@ class TimeFusion(nn.Module):
 
                 # Forward, loss calculation, backward, optimizer step
                 predictions = self.forward(context,queries)
+                print(context[0],queries[0],predictions[0],targets[0],"hello")
                 loss = loss_function(predictions,targets)
                 loss.backward()
                 optimizer.step()
 
                 # Print training statistics
-                average_loss = running_loss / epoch
-                stat_string = "|" + "="*(30*epoch // epochs) + " "*(30 - (30*epoch // epochs)) + f"|  Batch: {i} / {num_batches_per_epoch}, Epoch: {epoch} / {epochs}, Average Loss: {average_loss:.3f}"
-                print("\u007F"*512,"\r",stat_string, end="\r")
+                running_loss += loss.item()
+                average_loss = running_loss / i
+                stat_string = "|" + "="*(30*i // num_batches_per_epoch) + " "*(30 - (30*i // num_batches_per_epoch)) + f"|  Batch: {i} / {num_batches_per_epoch}, Epoch: {epoch} / {epochs}, Average Loss: {average_loss:.3f}"
+                #print("\u007F"*512,"\r",stat_string, end="")
 
             # New line for printing statistics
             print()
@@ -319,6 +324,8 @@ class Embedding(nn.Module):
 # 7. Use learning rate scheduler
 # 8. Figure out how to define "epoch" for time-series data
 # 9. Refine method of feeding data to network such that we can also feed covariates. Need to think how to represent it in pandas dataframe. Maybe just use tuple entries. Can use multiindex
+# 10. Add time to training statistics
+
 
 # NOTE:
 # 1. Definitiely should use @torch.no_grad() when measuring inference as this avoids the tracking of gradients, making it 6! times faster
