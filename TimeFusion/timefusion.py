@@ -4,11 +4,11 @@ import pandas as pd
 
 # Module imports
 from torch import nn, Tensor, optim
-from typing import List, Callable
+from typing import List, Callable, Optional, Dict
 from datetime import timedelta
 from math import pi
 from pandas import DataFrame
-from diffusion import batch_loader
+from diffusion import BatchLoader
 
 # Class accessible to end-user
 class TimeFusion(nn.Module):
@@ -18,6 +18,7 @@ class TimeFusion(nn.Module):
             datapoint_dim: int,
             context_length: int,
             prediction_length: int,
+            start_length: int = 0,
             indices: List[int] = [], 
             timestamps: List[int] = [],
             d_model: int = 32, 
@@ -27,7 +28,7 @@ class TimeFusion(nn.Module):
             dim_feedforward: int = 128,
             diff_steps: int = 100,
             device: torch.device = torch.device("cpu"),
-        ):
+        ) -> None:
         
         """
         Args:
@@ -48,6 +49,7 @@ class TimeFusion(nn.Module):
         # Set instance variables
         self.context_length = context_length
         self.prediction_length = prediction_length
+        self.start_length = start_length
         self.device = device
         self.diff_steps = diff_steps
 
@@ -56,12 +58,14 @@ class TimeFusion(nn.Module):
             indices = indices,
             timestamps = timestamps,
             device = device,
+            num_sines=64
         )
 
         self.embedding = Embedding(
             input_size = self.encoding.encoding_dim,
-            output_size = d_model,
-            device = device
+            output_size = int(d_model/2),
+            hidden_size = 256,
+            device = device,
         )
 
         self.transformer = nn.Transformer(
@@ -71,10 +75,13 @@ class TimeFusion(nn.Module):
             num_decoder_layers = num_decoder_layers, 
             dim_feedforward = dim_feedforward,
             batch_first=True,
-            device = device
+            device = device,
+            dropout=0
         )
 
-        self.linear = nn.Linear(d_model, 1, device=device)
+        #self.linear = nn.Linear(d_model, 1, device=device)
+        self.linear = nn.Linear(d_model, 2, device=device)
+        self.linear0  = nn.Linear(d_model, d_model, device=device)
 
     def forward(self, context: Tensor, queries: Tensor) -> Tensor:
         """
@@ -97,31 +104,39 @@ class TimeFusion(nn.Module):
         queries = self.embedding(queries)
 
         # Flatten context and query embeddings
-        context = torch.flatten(context, start_dim=1, end_dim=2)
-        queries = torch.flatten(queries, start_dim=1, end_dim=2)
+        context = torch.permute(context, (0, 2, 1, 3))
+        queries = torch.permute(queries, (0, 2, 1, 3))
+        context = torch.flatten(context, start_dim=2, end_dim=3)
+        queries = torch.flatten(queries, start_dim=2, end_dim=3)
+        #context = torch.flatten(context, start_dim=1, end_dim=2)
+        #queries = torch.flatten(queries, start_dim=1, end_dim=2)
 
         # Pass encoder and decoder inputs to Transformer
         x = self.transformer(
-            src = context,
-            tgt = queries,
+           src = context,
+           tgt = queries,
         )
         
         # Pass Transformer outputs through linear layer
+        x = nn.functional.relu(self.linear0(x))
         x = self.linear(x)
 
         # Reshape output to correct shape
         x = x.reshape(query_shape[:-1])
 
+        x = x[:,:,self.start_length:]
+
         return x
 
     # Function to train TimeFusion network
     def train(self,
-            data: DataFrame, 
+            train_data: DataFrame, 
             epochs: int,
             batch_size: int = 64,
-            num_batches_per_epoch: int = 50,
             optimizer: optim.Optimizer = None,
-            loss_function: Callable = nn.MSELoss()
+            loss_function: Callable = nn.MSELoss(),
+            val_data: Optional[DataFrame] = None,
+            val_metrics: Optional[Dict[str,Callable]] = None
         ) -> None:
         """
         Args:
@@ -136,24 +151,38 @@ class TimeFusion(nn.Module):
 
         # Set default optimizer
         if optimizer is None:
-            optimizer = optim.Adam(params=self.parameters(),lr=1e-2)
+            optimizer = optim.Adam(params=self.parameters(),lr=2e-4,weight_decay=1e-5)
+
+
+        train_loader = BatchLoader(
+            data = train_data,
+            batch_size = batch_size,
+            context_length = self.context_length,
+            prediction_length = self.prediction_length,
+            start_length = self.start_length,
+            diff_steps = self.diff_steps,
+            device = self.device
+        )
+
+        if not val_data is None:
+            if val_metrics is None:
+                val_metrics = {"Val loss": loss_function}
+            
+            val_loader = BatchLoader(
+                data = val_data,
+                batch_size = batch_size,
+                context_length = self.context_length,
+                prediction_length = self.prediction_length,
+                start_length = self.start_length,
+                diff_steps = self.diff_steps,
+                device = self.device
+            )
         
 
         for epoch in range(1, epochs + 1):
 
-            # Batch generator. TODO: MAKE INTO AN OBJECT SO I CAN MOVE OUTSIDE OF FOR LOOP
-            data_loader = batch_loader(
-                device = self.device,
-                data = data, 
-                batch_size = batch_size, 
-                num_batches_per_epoch = num_batches_per_epoch, 
-                context_length = self.context_length,
-                prediction_length = self.prediction_length,
-                diff_steps = self.diff_steps
-            )
-
             running_loss = 0
-            for i, batch in enumerate(data_loader, start = 1):
+            for i, batch in enumerate(train_loader, start = 1):
                 # Split data into context, queries and prediction targets
                 context, queries, targets = batch
 
@@ -162,7 +191,6 @@ class TimeFusion(nn.Module):
 
                 # Forward, loss calculation, backward, optimizer step
                 predictions = self.forward(context,queries)
-                print(context[0],queries[0],predictions[0],targets[0],"hello")
                 loss = loss_function(predictions,targets)
                 loss.backward()
                 optimizer.step()
@@ -170,11 +198,25 @@ class TimeFusion(nn.Module):
                 # Print training statistics
                 running_loss += loss.item()
                 average_loss = running_loss / i
-                stat_string = "|" + "="*(30*i // num_batches_per_epoch) + " "*(30 - (30*i // num_batches_per_epoch)) + f"|  Batch: {i} / {num_batches_per_epoch}, Epoch: {epoch} / {epochs}, Average Loss: {average_loss:.3f}"
-                #print("\u007F"*512,"\r",stat_string, end="")
+                stat_string = "|" + "="*(30*i // train_loader.num_batches) + " "*(30 - (30*i // train_loader.num_batches)) + f"|  Batch: {i} / {train_loader.num_batches}, Epoch: {epoch} / {epochs}, Average Loss: {average_loss:.4f}"
+                print("\u007F"*512,stat_string,end="\r")
 
-            # New line for printing statistics
-            print()
+            if val_data is not None:
+                with torch.no_grad():
+                    running_loss = {key:0 for key in val_metrics.keys()}
+                    for i, batch in enumerate(val_loader, start = 1):
+                        context, queries, targets = batch
+                        predictions = self.forward(context,queries)
+                        for key, metric_func in val_metrics.items():
+                            running_loss[key] += metric_func(predictions,targets).item()
+                    
+                    for metric, value in running_loss.items():
+                        stat_string += f", {metric}: {value / val_loader.num_batches:.4f}"
+
+                    print("\u007F"*512,stat_string)
+            else:
+                # New line for printing statistics
+                print()
 
 
 # Sine/cos wave encodings of indices and timestamps
@@ -188,14 +230,11 @@ class PositionalEncoding(nn.Module):
             device: torch.device,
             num_sines: int = 64,
             time_per: List[float] = [
-                timedelta(milliseconds=1).total_seconds()*1000,
-                timedelta(seconds=1).total_seconds()*1000,
                 timedelta(minutes=1).total_seconds()*1000,
                 timedelta(days=1).total_seconds()*1000,
                 timedelta(weeks=1).total_seconds()*1000,
                 timedelta(days=30).total_seconds()*1000,
                 timedelta(days=365).total_seconds()*1000,
-                timedelta(days=3650).total_seconds()*1000,
             ]
         ) -> None:
         """

@@ -7,109 +7,167 @@ import numpy as np
 
 # Module imports
 from torch import Tensor
-from typing import Generator, Iterable
+from typing import List
 
-# Functions for generating training batches and sampling starting points
-def batch_loader(
-        device: torch.device,
+# Iterable class which batches data
+class BatchLoader():
+        
+    def __init__(
+        self,
         data: pd.DataFrame, 
-        batch_size: int, 
-        num_batches_per_epoch: int, 
         context_length: int,
         prediction_length: int,
-        diff_steps: int,
-        betas: Iterable[float] = None
-    ) -> Generator[Tensor,Tensor,Tensor]:
-    """
-    Args:
-        data: Pandas DataFrame with timestamps as the index and a column for each time-series. Cells should be filled with
-        num_batches_per_epoch: The number of batches to train on in a given epoch.
-        batch_size: The number of samples to process at the same time.
-        context_length: The number of datapoints for each time-series that should be given as context to predictor
-        prediction_length: How many steps into the future to predict
-        diff_steps: The number of diffusion steps
-        betas: A schedule containing the beta values for n = {1,...,diff_steps}
-    Returns:
-        Generator giving Tensors for context, queries and targets of shape [batch_size,num time-series, context length, datapoint dim], 
-        [batch_size,num time-series, prediction length, datapoint dim] and [batch_size,num time-series, prediction length] respectively.
-    """
+        start_length: int = 0,
+        batch_size: int = 64, 
+        diff_steps: int = 100,
+        betas: List[float] = None,
+        device: torch.device = torch.device("cpu"),
+    ) -> None:
+        
+        """
+        Args:
+            data: Pandas DataFrame with timestamps as the index and a column for each time-series. Cells should be filled with.
+            num_batches_per_epoch: The number of batches to train on in a given epoch.
+            batch_size: The number of samples to process at the same time.
+            context_length: The number of datapoints for each time-series that should be given as context to predictor
+            prediction_length: How many steps into the future to predict
+            diff_steps: The number of diffusion steps
+            betas: A schedule containing the beta values for n = {1,...,diff_steps}
+        Returns:
+            Generator giving Tensors for context, queries and targets of shape [batch_size,num time-series, context length, datapoint dim], 
+            [batch_size,num time-series, prediction length, datapoint dim] and [batch_size,num time-series, prediction length] respectively.
+        """
 
-    if betas is None:
-        betas = np.linspace(1e-4, 0.1, diff_steps)
+        self.batch_size = batch_size
+        self.context_length = context_length
+        self.prediction_length = prediction_length
+        self.start_length = start_length
+        self.diff_steps = diff_steps
+        self.betas = betas
+        self.device = device
 
-    alphas = 1.0 - betas
-    bar_alphas = np.cumprod(alphas)
+        if betas is None:
+            self.betas = np.linspace(1e-4, 0.1, diff_steps)
+
+        self.alphas = 1.0 - self.betas
+        self.bar_alphas = np.cumprod(self.alphas)
+
+        # Ensure data is sorted
+        data.sort_index(inplace=True)
+
+        # Find minimum and maximum index at which division between context and target can be made
+        min_idx = data.index[0]
+        max_idx = data.index[-1]
+        for column in data:
+            min_idx = max(min_idx, data[column].dropna().index[:context_length + 1][-1], data[column].dropna().index[:start_length + 1][-1])
+            max_idx = min(max_idx, data[column].dropna().index[-prediction_length:][0])
     
-    
-    # Find minimum and maximum index at which division between context and target can be made
-    min_idx = 0
-    max_idx = len(data) - 1
-    for column in data:
-        min_idx = max(min_idx,data[column].dropna().index[:context_length + 1][-1])
-        max_idx = min(max_idx,data[column].dropna().index[-prediction_length:][0])
-    
-    assert min_idx <= max_idx , "Not enough data provided for given context and prediction length"
+        assert min_idx <= max_idx , f"Not enough data provided for given context and prediction length"
 
-    # Shuffle indices to get random order for each batch and epoch
-    shuffled_indices = list(data.index[pd.Series(data.index).between(min_idx,max_idx)])
-    random.shuffle(shuffled_indices)
+        # Get all indices at which it is possible to split data
+        #indices = list(data.index[pd.Series(data.index).between(min_idx,max_idx)])
+        # Get all integer indices at which it is possible to split data
+        indices = list(pd.Series(range(len(data)))[pd.Series(data.index).between(min_idx,max_idx)])
 
-
-    for k in range(num_batches_per_epoch):
-
-        if batch_size * k >= len(shuffled_indices):
-            print(f"{num_batches_per_epoch} was expected, but only {math.ceil(len(shuffled_indices)/batch_size)} can be create with given data!")
-            break
-
-        # Create Tensors to hold batch
-        context_tensor = torch.empty(0,device=device)
-        query_tensor = torch.empty(0,device=device)
-        target_tensor = torch.empty(0,device=device)
-
-        indices = shuffled_indices[batch_size * k:batch_size * (k+1)]
-
+        # Calculate context, queries and targets for each valid index
+        self.contexts = torch.empty(0, device = device)
+        self.queries = torch.empty(0, device = device)
+        self.targets = torch.empty(0, device = device)
         for idx in indices:
 
             # Split data at index
-            before = data[data.index < idx]
-            after = data[data.index >= idx]
+            #context_data = data[data.index < idx]
+            #query_data = data[data.index >= idx - start_length] # NEED TO FIX THIS TO WORK WITH IRREGULAR DATA, can be done using iloc?
+            context_data = data.iloc[:idx]
+            query_data = data.iloc[idx:]
 
-            # Create context vector
-            context = torch.empty(0,device=device)
-            # Add values, timestamps, time-series index, datapoint index and diffusion index
-            for j, column in enumerate(data.columns):
-                col_values = before[column].dropna()
-                col_tensor = torch.tensor([[col_values.iloc[i - context_length],col_values.index[i - context_length],i,j,0] for i in range(0, context_length)],device=device,dtype=torch.float32)
-                context = torch.cat((context,col_tensor[None,:]))
+            # Create context Tensor
+            context = torch.empty(0, device = device)
+            for j, column in enumerate(context_data.columns):
+                col_values = context_data[column].dropna()
+                col_tensor = torch.tensor(
+                    [
+                        list(col_values.iloc[-context_length:]), # Value
+                        list(col_values.index[-context_length:] - data.index[idx]), # Timestamp
+                        list(range(context_length)), # Datapoint index
+                        #list(np.full(shape=(context_length),fill_value=j)), # Time-series index
+                        #list(np.zeros(shape=(context_length))) # Diffusion index
+                    ],
+                    dtype = torch.float32,
+                    device = device
+                ).t()
+                context = torch.cat((context, col_tensor[None,:]))
+            self.contexts = torch.cat((self.contexts, context[None,:]))
 
-            # Select random diffusion step n
-            n = random.randrange(1, diff_steps + 1)
+            # Create query Tensor (non-diffused)
+            query = torch.empty(0, device = device)
+            for j, column in enumerate(query_data.columns):
+                col_values = query_data[column].dropna()
+                col_tensor = torch.tensor(
+                    [
+                        list(col_values.iloc[:prediction_length]), # Value
+                        list(col_values.index[:prediction_length] - data.index[idx]), # Timestamp
+                        list(range(context_length, context_length + prediction_length)), # Datapoint index
+                        #list(np.full(shape=(prediction_length + start_length),fill_value=j)), # Time-series index
+                        #list(np.zeros(shape=(prediction_length + start_length))) # Diffusion index
+                    ],
+                    dtype = torch.float32,
+                    device = device
+                ).t()
+                query = torch.cat((query, col_tensor[None,:]))
+            query = torch.cat((context[:,-start_length:,:],query),dim=1) # Add start token
+            self.queries = torch.cat((self.queries, query[None,:]))
 
-            # Non-diffused queries
-            query = torch.empty(0,device=device)
-            # Add values, timestamps, time-series index, datapoint index and diffusion index
-            for j, column in enumerate(data.columns):
-                col_values = after[column].dropna()
-                col_tensor = torch.tensor([[col_values.iloc[i],col_values.index[i],i + context_length,j,n] for i in range(0, prediction_length)],device=device,dtype=torch.float32)
-                query = torch.cat((query,col_tensor[None,:]))
+            # Create target Tensor
+            target = torch.clone(query[:,start_length:,0])
+            self.targets = torch.cat((self.targets, target[None,:]))
+    
+
+    def __iter__(self):
+        return self._generator()
+    
+
+    def _generator(self):
+
+        # Get random ordering of samples
+        shuffled_indices = list(range(len(self.contexts)))
+        random.shuffle(shuffled_indices)
+
+
+        # Yield batches until all data has been looped through
+        i = 0
+        while i * self.batch_size < len(shuffled_indices):
+
+            batch_indices = shuffled_indices[i * self.batch_size : (i+1) * self.batch_size]
+
+            # Fetch data from list of samples
+            context_tensor = self.contexts[batch_indices]
+            query_tensor = self.queries[batch_indices]
 
             # Sample targets from N(0,I)
             #target = torch.empty((len(data.columns),prediction_length),device=device).normal_()
-            target = query[:,:,0]
+            target_tensor = self.targets[batch_indices]
 
-            # Diffuse queries
+            # Diffuse data
+            # Select random diffusion step n
+            #n = random.randrange(1, self.diff_steps + 1) # Needs to be added to tensors
             #query[:,:,0] = math.sqrt(bar_alphas[n - 1])*query[:,:,0] + math.sqrt(1-bar_alphas[n - 1])*target
+            query_tensor[:,:,self.start_length:,0] = torch.zeros(query_tensor[:,:,self.start_length:,0].shape)
 
-            # Concatenate data with rest of batch
-            context_tensor = torch.cat((context_tensor,context[None,:]))
-            query_tensor = torch.cat((query_tensor,query[None,:]))
-            target_tensor = torch.cat((target_tensor,target[None,:]))
+            # Yield a single batch
+            yield (context_tensor, query_tensor, target_tensor)
 
-        # Yield a single batch
-        yield (context_tensor, query_tensor, target_tensor)
+            # Increment counter
+            i += 1
+
+
+    @property
+    def num_batches(self) -> int:
+        """
+        Returns: The number of batches per epoch
+        """
+        return math.ceil(len(self.contexts) / self.batch_size)
 
 
 # TODO:
-# 1. Need to make this data generator into a class to avoid pre-processing of data at the beginning of every epoch.
-# 2. Do I need to set device on which these Tensors are handled. YES! DO IT NOW!
-# 3. REALLY need to optimize this function
+# 1. Need to handle situations where start_length is shorter than context_length
