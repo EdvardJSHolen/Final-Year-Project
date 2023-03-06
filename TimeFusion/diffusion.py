@@ -145,14 +145,14 @@ class BatchLoader():
             query_tensor = self.queries[batch_indices]
 
             # Sample targets from N(0,I)
-            #target = torch.empty((len(data.columns),prediction_length),device=device).normal_()
-            target_tensor = self.targets[batch_indices]
+            target_tensor = torch.empty(size=query_tensor[:,:,self.start_length:,0].shape,device=self.device).normal_()
+            #target_tensor = self.targets[batch_indices]
 
             # Diffuse data
-            # Select random diffusion step n
-            #n = random.randrange(1, self.diff_steps + 1) # Needs to be added to tensors
-            #query[:,:,0] = math.sqrt(bar_alphas[n - 1])*query[:,:,0] + math.sqrt(1-bar_alphas[n - 1])*target
-            query_tensor[:,:,self.start_length:,0] = torch.zeros(query_tensor[:,:,self.start_length:,0].shape)
+            for k in range(query_tensor.shape[0]):
+                n = random.randrange(1, self.diff_steps + 1)
+                query_tensor[k,:,self.start_length:,0] = math.sqrt(self.bar_alphas[n - 1])*query_tensor[k,:,self.start_length:,0] + math.sqrt(1-self.bar_alphas[n - 1])*target_tensor[k]
+            #query_tensor[:,:,self.start_length:,0] = torch.zeros(query_tensor[:,:,self.start_length:,0].shape)
 
             # Yield a single batch
             yield (context_tensor, query_tensor, target_tensor)

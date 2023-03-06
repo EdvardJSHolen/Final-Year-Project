@@ -58,7 +58,7 @@ class TimeFusion(nn.Module):
             indices = indices,
             timestamps = timestamps,
             device = device,
-            num_sines=64
+            num_sines = 64
         )
 
         self.embedding = Embedding(
@@ -118,7 +118,7 @@ class TimeFusion(nn.Module):
         )
         
         # Pass Transformer outputs through linear layer
-        x = nn.functional.relu(self.linear0(x))
+        #x = nn.functional.relu(self.linear0(x))
         x = self.linear(x)
 
         # Reshape output to correct shape
