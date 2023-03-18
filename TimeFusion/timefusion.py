@@ -1,6 +1,8 @@
 # Library imports
 import torch
+import math
 import pandas as pd
+import numpy as np
 
 # Module imports
 from torch import nn, Tensor, optim
@@ -27,6 +29,7 @@ class TimeFusion(nn.Module):
             num_decoder_layers: int = 6, 
             dim_feedforward: int = 128,
             diff_steps: int = 100,
+            betas: List[float] = None,
             device: torch.device = torch.device("cpu"),
         ) -> None:
         
@@ -52,6 +55,12 @@ class TimeFusion(nn.Module):
         self.start_length = start_length
         self.device = device
         self.diff_steps = diff_steps
+    
+        if betas is None:
+            self.betas = np.linspace(1e-4, 0.1, diff_steps)
+
+        self.alphas = 1.0 - self.betas
+        self.bar_alphas = np.cumprod(self.alphas)
 
         self.encoding = PositionalEncoding(
             datapoint_dim = datapoint_dim,
@@ -218,6 +227,97 @@ class TimeFusion(nn.Module):
                 # New line for printing statistics
                 print()
 
+    @torch.no_grad()
+    def sample(
+        self,
+        data: DataFrame,
+        num_samples: int = 1,
+        batch_size: int = 32
+    ):
+        # TODO: MAKE THIS WORK WITH IRREGULAR TIME-SERIES DATA
+        # TODO: Optimize by splitting encoder from rest of transformer
+        # For optimal performance, num_samples should be divisible by batch size
+        # Does not yet work when start length is longer than context length
+
+        # Generate context Tensor
+        context = torch.empty(0, device = self.device)
+        for j, column in enumerate(data.columns):
+            col_values = data[column].dropna()
+            col_tensor = torch.tensor(
+                [
+                    list(col_values.iloc[-self.context_length:]), # Value
+                    list(col_values.index[-self.context_length:] - data.index[-1]), # Timestamp
+                    list(range(self.context_length)), # Datapoint index
+                    #list(np.full(shape=(context_length),fill_value=j)), # Time-series index
+                    list(np.zeros(shape=(self.context_length))) # Diffusion index
+                ],
+                dtype = torch.float32,
+                device = self.device
+            ).t()
+            context = torch.cat((context, col_tensor[None,:]))
+
+        # Create query Tensor (non-diffused)
+        query = torch.empty(0, device = self.device)
+        for j, column in enumerate(data.columns):
+            col_tensor = torch.tensor(
+                [
+                    [0]*self.prediction_length, # Value
+                    list(np.array(range(1,self.prediction_length + 1))), # Timestamp
+                    list(range(self.context_length,self.prediction_length + self.context_length)), # Datapoint index
+                    #list(np.full(shape=(prediction_length + start_length),fill_value=j)), # Time-series index
+                    list(np.zeros(shape=(self.prediction_length))) # Diffusion index
+                ],
+                dtype = torch.float32,
+                device = self.device
+            ).t()
+            query = torch.cat((query, col_tensor[None,:]))
+        query = torch.cat((context[:,-self.start_length:,:],query),dim=1) # Add start token
+
+
+        # Copy context and query tensor to be of same size as batch size (HACK)
+        context = context.unsqueeze(0).repeat([batch_size] + [1]*context.dim())
+        query = query.unsqueeze(0).repeat([batch_size] + [1]*query.dim())
+
+        # Sample
+        samples = torch.empty(0, device = self.device)
+        iterations = torch.empty(0, device = self.device)
+        iterations2 = torch.empty(0, device = self.device)
+        while samples.shape[0] < num_samples:
+
+            # Make sure we do not make too many predictions if num_samples % batch_size is not equal to 0
+            if num_samples - samples.shape[0] < batch_size:
+                query = query[:num_samples - samples.shape[0]]
+                context = context[:num_samples - samples.shape[0]]
+
+            # Sample initial white noise
+            query[:,:,self.start_length:,0] = torch.empty(size=query[:,:,self.start_length:,0].shape,device=self.device).normal_()
+
+            # Compute each diffusion step
+            for n in range(self.diff_steps,0,-1):
+
+                # Set diffusion step
+                query[:,:,self.start_length:,-1] = n
+
+                iterations = torch.cat((iterations, query))
+
+                # Calculate output
+                output = self.forward(context,query)
+
+                iterations2 = torch.cat((iterations2, output))
+
+                # Give new value to query
+                if n > 1:
+                    z = torch.empty(size=query[:,:,self.start_length:,0].shape,device=self.device).normal_()
+                else: 
+                    z = torch.zeros(size=query[:,:,self.start_length:,0].shape,device=self.device)
+
+                query[:,:,self.start_length:,0] = (1/math.sqrt(self.alphas[n-1]))*(query[:,:,self.start_length:,0] - (self.betas[n-1]/math.sqrt(1-self.bar_alphas[n-1]))*output) + math.sqrt(self.betas[n-1])*z
+
+            # Add denoised queries to samples
+            #samples = torch.cat((samples, query[:,:,self.start_length:]))
+            samples = torch.cat((samples, query))
+
+        return samples, iterations, iterations2
 
 # Sine/cos wave encodings of indices and timestamps
 class PositionalEncoding(nn.Module):
@@ -364,6 +464,8 @@ class Embedding(nn.Module):
 # 8. Figure out how to define "epoch" for time-series data
 # 9. Refine method of feeding data to network such that we can also feed covariates. Need to think how to represent it in pandas dataframe. Maybe just use tuple entries. Can use multiindex
 # 10. Add time to training statistics
+# 11. Need to consolidate beta schedules, currently define them two places.
+# 12. NEED TO SET model.eval() ????
 
 
 # NOTE:

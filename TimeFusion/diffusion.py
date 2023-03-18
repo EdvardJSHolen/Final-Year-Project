@@ -91,7 +91,7 @@ class BatchLoader():
                         list(col_values.index[-context_length:] - data.index[idx]), # Timestamp
                         list(range(context_length)), # Datapoint index
                         #list(np.full(shape=(context_length),fill_value=j)), # Time-series index
-                        #list(np.zeros(shape=(context_length))) # Diffusion index
+                        list(np.zeros(shape=(context_length))) # Diffusion index
                     ],
                     dtype = torch.float32,
                     device = device
@@ -109,7 +109,7 @@ class BatchLoader():
                         list(col_values.index[:prediction_length] - data.index[idx]), # Timestamp
                         list(range(context_length, context_length + prediction_length)), # Datapoint index
                         #list(np.full(shape=(prediction_length + start_length),fill_value=j)), # Time-series index
-                        #list(np.zeros(shape=(prediction_length + start_length))) # Diffusion index
+                        list(np.zeros(shape=(prediction_length))) # Diffusion index
                     ],
                     dtype = torch.float32,
                     device = device
@@ -152,6 +152,7 @@ class BatchLoader():
             for k in range(query_tensor.shape[0]):
                 n = random.randrange(1, self.diff_steps + 1)
                 query_tensor[k,:,self.start_length:,0] = math.sqrt(self.bar_alphas[n - 1])*query_tensor[k,:,self.start_length:,0] + math.sqrt(1-self.bar_alphas[n - 1])*target_tensor[k]
+                query_tensor[k,:,self.start_length:,-1] = n
             #query_tensor[:,:,self.start_length:,0] = torch.zeros(query_tensor[:,:,self.start_length:,0].shape)
 
             # Yield a single batch
