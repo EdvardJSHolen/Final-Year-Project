@@ -168,6 +168,3 @@ class BatchLoader():
         """
         return math.ceil(len(self.tokens) / self.batch_size)
 
-
-# TODO:
-# 1. Need to handle situations where start_length is shorter than context_length

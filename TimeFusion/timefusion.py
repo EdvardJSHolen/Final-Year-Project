@@ -4,6 +4,8 @@ import math
 import pandas as pd
 import numpy as np
 
+import time
+
 # Module imports
 from torch import nn, Tensor, optim
 from typing import List, Callable, Optional, Dict
@@ -198,6 +200,7 @@ class TimeFusion(nn.Module):
     def sample(
         self,
         data: DataFrame,
+        timestamps: List[float],
         num_samples: int = 1,
         batch_size: int = 32
     ):
@@ -229,7 +232,7 @@ class TimeFusion(nn.Module):
             col_tensor = torch.tensor(
                 [
                     [0]*self.prediction_length, # Value
-                    list(np.array(range(1,self.prediction_length + 1))/self.context_length), # Timestamp
+                    list(np.array(timestamps[j] - data.index[-1])/self.context_length), # Timestamp
                     #list(range(self.context_length,self.prediction_length + self.context_length)), # Datapoint index
                     #list(np.full(shape=(prediction_length + start_length),fill_value=j)), # Time-series index
                     list(np.zeros(shape=(self.prediction_length))) # Diffusion index
@@ -257,6 +260,7 @@ class TimeFusion(nn.Module):
             if num_samples - samples.shape[0] < batch_size:
                 tokens = tokens[:num_samples - samples.shape[0]]
 
+
             # Sample initial white noise
             tokens[:,:,self.context_length:,0] = torch.empty(size=tokens[:,:,self.context_length:,0].shape,device=self.device).normal_()
 
@@ -264,9 +268,8 @@ class TimeFusion(nn.Module):
             for n in range(self.diff_steps,0,-1):
 
                 # Set diffusion step
-                tokens[:,:,self.context_length:,-1] = 2*n / self.diff_steps - 1
-
-                #iterations = torch.cat((iterations, query))
+                #tokens[:,:,self.context_length:,-1] = 2*n / self.diff_steps - 1
+                tokens[:,:,self.context_length:,-1] = torch.full(tokens[:,:,self.context_length:,-1].shape, 2*n / self.diff_steps - 1)
 
                 # Calculate output
                 output = self.forward(tokens)
@@ -293,8 +296,8 @@ class PositionalEncoding(nn.Module):
         super().__init__()
         self.dropout = nn.Dropout(p=dropout)
 
-        position = torch.arange(max_len).unsqueeze(1)
-        div_term = torch.exp(torch.arange(0, d_model, 2) * (-math.log(10000.0) / d_model))
+        position = torch.arange(max_len,device=device).unsqueeze(1)
+        div_term = torch.exp(torch.arange(0, d_model, 2,device=device) * (-math.log(10000.0) / d_model))
         pe = torch.zeros(max_len, d_model,device=device)
         pe[:, 0::2] = torch.sin(position * div_term)
         pe[:, 1::2] = torch.cos(position * div_term)
@@ -322,6 +325,7 @@ class PositionalEncoding(nn.Module):
 # 10. Add time to training statistics
 # 11. Need to consolidate beta schedules, currently define them two places.
 # 12. NEED TO SET model.eval() ????
+
 
 
 # NOTE:
