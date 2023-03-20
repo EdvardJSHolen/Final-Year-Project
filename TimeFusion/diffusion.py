@@ -17,7 +17,6 @@ class BatchLoader():
         data: pd.DataFrame, 
         context_length: int,
         prediction_length: int,
-        start_length: int = 0,
         batch_size: int = 64, 
         diff_steps: int = 100,
         betas: List[float] = None,
@@ -41,7 +40,6 @@ class BatchLoader():
         self.batch_size = batch_size
         self.context_length = context_length
         self.prediction_length = prediction_length
-        self.start_length = start_length
         self.diff_steps = diff_steps
         self.betas = betas
         self.device = device
@@ -59,7 +57,7 @@ class BatchLoader():
         min_idx = data.index[0]
         max_idx = data.index[-1]
         for column in data:
-            min_idx = max(min_idx, data[column].dropna().index[:context_length + 1][-1], data[column].dropna().index[:start_length + 1][-1])
+            min_idx = max(min_idx, data[column].dropna().index[:context_length + 1][-1])
             max_idx = min(max_idx, data[column].dropna().index[-prediction_length:][0])
     
         assert min_idx <= max_idx , f"Not enough data provided for given context and prediction length"
@@ -88,8 +86,8 @@ class BatchLoader():
                 col_tensor = torch.tensor(
                     [
                         list(col_values.iloc[-context_length:]), # Value
-                        list(col_values.index[-context_length:] - data.index[idx]), # Timestamp
-                        list(range(context_length)), # Datapoint index
+                        list(np.array(col_values.index[-context_length:] - data.index[idx])/context_length), # Timestamp
+                        #list(range(context_length)), # Datapoint index
                         #list(np.full(shape=(context_length),fill_value=j)), # Time-series index
                         list(np.zeros(shape=(context_length))) # Diffusion index
                     ],
@@ -106,8 +104,8 @@ class BatchLoader():
                 col_tensor = torch.tensor(
                     [
                         list(col_values.iloc[:prediction_length]), # Value
-                        list(col_values.index[:prediction_length] - data.index[idx]), # Timestamp
-                        list(range(context_length, context_length + prediction_length)), # Datapoint index
+                        list(np.array(col_values.index[:prediction_length] - data.index[idx])/context_length), # Timestamp
+                        #list(range(context_length, context_length + prediction_length)), # Datapoint index
                         #list(np.full(shape=(prediction_length + start_length),fill_value=j)), # Time-series index
                         list(np.zeros(shape=(prediction_length))) # Diffusion index
                     ],
@@ -115,11 +113,13 @@ class BatchLoader():
                     device = device
                 ).t()
                 query = torch.cat((query, col_tensor[None,:]))
-            query = torch.cat((context[:,-start_length:,:],query),dim=1) # Add start token
             self.queries = torch.cat((self.queries, query[None,:]))
 
+            # Combine queries and context
+            self.tokens = torch.cat((self.contexts,self.queries),dim=-2)
+
             # Create target Tensor
-            target = torch.clone(query[:,start_length:,0])
+            target = torch.clone(query[:,:,0])
             self.targets = torch.cat((self.targets, target[None,:]))
     
 
@@ -130,7 +130,7 @@ class BatchLoader():
     def _generator(self):
 
         # Get random ordering of samples
-        shuffled_indices = list(range(len(self.contexts)))
+        shuffled_indices = list(range(len(self.tokens)))
         random.shuffle(shuffled_indices)
 
 
@@ -141,22 +141,21 @@ class BatchLoader():
             batch_indices = shuffled_indices[i * self.batch_size : (i+1) * self.batch_size]
 
             # Fetch data from list of samples
-            context_tensor = self.contexts[batch_indices]
-            query_tensor = self.queries[batch_indices]
+            tokens = self.tokens[batch_indices]
 
             # Sample targets from N(0,I)
-            target_tensor = torch.empty(size=query_tensor[:,:,self.start_length:,0].shape,device=self.device).normal_()
+            target_tensor = torch.empty(size=tokens[:,:,self.context_length:,0].shape,device=self.device).normal_()
             #target_tensor = self.targets[batch_indices]
 
             # Diffuse data
-            for k in range(query_tensor.shape[0]):
+            for k in range(tokens.shape[0]):
                 n = random.randrange(1, self.diff_steps + 1)
-                query_tensor[k,:,self.start_length:,0] = math.sqrt(self.bar_alphas[n - 1])*query_tensor[k,:,self.start_length:,0] + math.sqrt(1-self.bar_alphas[n - 1])*target_tensor[k]
-                query_tensor[k,:,self.start_length:,-1] = n
+                tokens[k,:,self.context_length:,0] = math.sqrt(self.bar_alphas[n - 1])*tokens[k,:,self.context_length:,0] + math.sqrt(1-self.bar_alphas[n - 1])*target_tensor[k]
+                tokens[k,:,self.context_length:,-1] = 2*n / self.diff_steps - 1
             #query_tensor[:,:,self.start_length:,0] = torch.zeros(query_tensor[:,:,self.start_length:,0].shape)
 
             # Yield a single batch
-            yield (context_tensor, query_tensor, target_tensor)
+            yield (tokens, target_tensor)
 
             # Increment counter
             i += 1
@@ -167,7 +166,7 @@ class BatchLoader():
         """
         Returns: The number of batches per epoch
         """
-        return math.ceil(len(self.contexts) / self.batch_size)
+        return math.ceil(len(self.tokens) / self.batch_size)
 
 
 # TODO:
