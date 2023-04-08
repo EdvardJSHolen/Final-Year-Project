@@ -103,22 +103,21 @@ class TimeFusion(nn.Module):
     def forward(self, x: Tensor):
         """
         Args:
-            x: Tensor of shape (batch size, total length, timeseries_dim, datapoint_dim) or (total length, timeseries_dim, datapoint_dim))
+            x: Tensor of shape (batch size, timeseries_dim, total length, datapoint_dim) or (timeseries_dim, total length, datapoint_dim))
         """
 
         # If data is unbatched, add a batch dimension
         if x.dim() == 3:
             x.unsqueeze(0)
 
-        # Store the original shape of the input
-        original_shape = x.shape
-
         # Pass input through network
+        x = torch.permute(x, (0, 2, 1, 3))
         x = torch.flatten(x, start_dim=2)
         x = self.embedding(x)
         x = self.positional_encoding(x)
         x = self.transformer_encoder(x)
         x = self.linear(x)
+        x = torch.permute(x, (0, 2, 1))
 
         return x
 
@@ -126,7 +125,6 @@ class TimeFusion(nn.Module):
     def train(self,
             train_loader: BatchLoader, 
             epochs: int,
-            batch_size: int = 64,
             val_loader: Optional[BatchLoader] = None,
             val_metrics: Optional[Dict[str,Callable]] = None,
             loss_function: Callable = nn.MSELoss(),
@@ -137,7 +135,6 @@ class TimeFusion(nn.Module):
         Args:
             train_loader: Generator which provides batched training data.
             epochs: The number of epochs to train for.
-            batch_size: The number of samples to process at the same time.
             train_loader: Generator which provides batched validation data.
             val_metrics: Name of metrics and callable functions to calculate them which measure the performance of the network.
             loss_function: Function to measure how well predictions match targets.
@@ -221,7 +218,7 @@ class TimeFusion(nn.Module):
 
         # Generate context Tensor
         context = torch.empty(0, device = self.device)
-        for j, column in enumerate(data.columns):
+        for column in data.columns:
             col_values = data[column].dropna()
             col_tensor = torch.tensor(
                 [
@@ -232,11 +229,11 @@ class TimeFusion(nn.Module):
                 dtype = torch.float32,
                 device = self.device
             ).t()
-            context = torch.cat((context, col_tensor[None,:]))
+            context = torch.cat((context, col_tensor.unsqueeze(0)))
 
         # Create query Tensor (non-diffused)
         query = torch.empty(0, device = self.device)
-        for j, column in enumerate(data.columns):
+        for column in data.columns:
             col_tensor = torch.tensor(
                 [
                     [0]*self.prediction_length, # Value
@@ -246,10 +243,10 @@ class TimeFusion(nn.Module):
                 dtype = torch.float32,
                 device = self.device
             ).t()
-            query = torch.cat((query, col_tensor[None,:]))
+            query = torch.cat((query, col_tensor.unsqueeze(0)))
 
         # Combine queries and context
-        tokens = torch.cat((context,query),dim=-2)
+        tokens = torch.cat((context,query), dim= -2)
 
         # Repeat tokens such that the first dimension of the tokens tensor is equal to the batch size
         tokens = tokens.unsqueeze(0).repeat([batch_size] + [1]*tokens.dim())

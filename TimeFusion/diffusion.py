@@ -25,21 +25,22 @@ class BatchLoader():
         
         """
         Args:
-            data: Pandas DataFrame with timestamps as the index and a column for each time-series. Cells should be filled with.
-            num_batches_per_epoch: The number of batches to train on in a given epoch.
-            batch_size: The number of samples to process at the same time.
+            data: Pandas DataFrame with timestamps as the index and a column for each time-series.
             context_length: The number of datapoints for each time-series that should be given as context to predictor
             prediction_length: How many steps into the future to predict
+            batch_size: The number of samples to process at the same time.
             diff_steps: The number of diffusion steps
             betas: A schedule containing the beta values for n = {1,...,diff_steps}
+            device: The device on which computations should be performed (e.g. "cpu" or "cuda0").
         Returns:
-            Generator giving Tensors for context, queries and targets of shape [batch_size,num time-series, context length, datapoint dim], 
-            [batch_size,num time-series, prediction length, datapoint dim] and [batch_size,num time-series, prediction length] respectively.
+            Generator giving Tensors for inputs and targets of shape [batch_size, total length, num time-series, datapoint dim], 
+            and [batch_size, prediction length, num time-series] respectively.
         """
 
-        self.batch_size = batch_size
+        # Set instance variables
         self.context_length = context_length
         self.prediction_length = prediction_length
+        self.batch_size = batch_size
         self.diff_steps = diff_steps
         self.betas = betas
         self.device = device
@@ -62,8 +63,6 @@ class BatchLoader():
     
         assert min_idx <= max_idx , f"Not enough data provided for given context and prediction length"
 
-        # Get all indices at which it is possible to split data
-        #indices = list(data.index[pd.Series(data.index).between(min_idx,max_idx)])
         # Get all integer indices at which it is possible to split data
         indices = list(pd.Series(range(len(data)))[pd.Series(data.index).between(min_idx,max_idx)])
 
@@ -74,53 +73,47 @@ class BatchLoader():
         for idx in indices:
 
             # Split data at index
-            #context_data = data[data.index < idx]
-            #query_data = data[data.index >= idx - start_length] # NEED TO FIX THIS TO WORK WITH IRREGULAR DATA, can be done using iloc?
             context_data = data.iloc[:idx]
             query_data = data.iloc[idx:]
 
             # Create context Tensor
             context = torch.empty(0, device = device)
-            for j, column in enumerate(context_data.columns):
+            for column in context_data.columns:
                 col_values = context_data[column].dropna()
                 col_tensor = torch.tensor(
                     [
                         list(col_values.iloc[-context_length:]), # Value
                         list(np.array(col_values.index[-context_length:] - data.index[idx])/context_length), # Timestamp
-                        #list(range(context_length)), # Datapoint index
-                        #list(np.full(shape=(context_length),fill_value=j)), # Time-series index
                         list(np.zeros(shape=(context_length))) # Diffusion index
                     ],
                     dtype = torch.float32,
                     device = device
                 ).t()
-                context = torch.cat((context, col_tensor[None,:]))
-            self.contexts = torch.cat((self.contexts, context[None,:]))
+                context = torch.cat((context, col_tensor.unsqueeze(0)))
+            self.contexts = torch.cat((self.contexts, context.unsqueeze(0)))
 
             # Create query Tensor (non-diffused)
             query = torch.empty(0, device = device)
-            for j, column in enumerate(query_data.columns):
+            for column in query_data.columns:
                 col_values = query_data[column].dropna()
                 col_tensor = torch.tensor(
                     [
                         list(col_values.iloc[:prediction_length]), # Value
                         list(np.array(col_values.index[:prediction_length] - data.index[idx])/context_length), # Timestamp
-                        #list(range(context_length, context_length + prediction_length)), # Datapoint index
-                        #list(np.full(shape=(prediction_length + start_length),fill_value=j)), # Time-series index
                         list(np.zeros(shape=(prediction_length))) # Diffusion index
                     ],
                     dtype = torch.float32,
                     device = device
                 ).t()
-                query = torch.cat((query, col_tensor[None,:]))
-            self.queries = torch.cat((self.queries, query[None,:]))
+                query = torch.cat((query, col_tensor.unsqueeze(0)))
+            self.queries = torch.cat((self.queries, query.unsqueeze(0)))
 
             # Combine queries and context
-            self.tokens = torch.cat((self.contexts,self.queries),dim=-2)
+            self.tokens = torch.cat((self.contexts,self.queries),dim = -2)
 
             # Create target Tensor
             target = torch.clone(query[:,:,0])
-            self.targets = torch.cat((self.targets, target[None,:]))
+            self.targets = torch.cat((self.targets, target.unsqueeze(0)))
     
 
     def __iter__(self):
@@ -152,7 +145,6 @@ class BatchLoader():
                 n = random.randrange(1, self.diff_steps + 1)
                 tokens[k,:,self.context_length:,0] = math.sqrt(self.bar_alphas[n - 1])*tokens[k,:,self.context_length:,0] + math.sqrt(1-self.bar_alphas[n - 1])*target_tensor[k]
                 tokens[k,:,self.context_length:,-1] = 2*n / self.diff_steps - 1
-            #query_tensor[:,:,self.start_length:,0] = torch.zeros(query_tensor[:,:,self.start_length:,0].shape)
 
             # Yield a single batch
             yield (tokens, target_tensor)
