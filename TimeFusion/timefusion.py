@@ -116,7 +116,7 @@ class TimeFusion(nn.Module):
         x = self.embedding(x)
         x = self.positional_encoding(x)
         x = self.transformer_encoder(x)
-        x = self.linear(x)
+        x = self.linear(x[:,self.context_length:])
         x = torch.permute(x, (0, 2, 1))
 
         return x
@@ -233,7 +233,7 @@ class TimeFusion(nn.Module):
 
         # Create query Tensor (non-diffused)
         query = torch.empty(0, device = self.device)
-        for column in data.columns:
+        for j, column in enumerate(data.columns):
             col_tensor = torch.tensor(
                 [
                     [0]*self.prediction_length, # Value
