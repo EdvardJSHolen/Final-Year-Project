@@ -8,10 +8,13 @@ readme = "README.md"
 [tool.poetry.dependencies]
 python = ">=3.10,<3.12"
 ipykernel = "^6.21.2"
-torch = "^1.13.1"
-torchvision = "^0.14.1"
-torchaudio = "^0.13.1"
-pandas = "^1.5.3"
+#torch = "^1.13.1"
+#torchvision = "^0.14.1"
+#torchaudio = "^0.13.1"
+#pandas = "^1.5.3"
+torch = "^2.0.0"
+torchvision = "^0.15.1"
+torchaudio = "^2.0.1"
 
 
 [tool.poetry.group.dev.dependencies]

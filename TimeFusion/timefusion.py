@@ -122,7 +122,7 @@ class TimeFusion(nn.Module):
         return x
 
     # Function to train TimeFusion network
-    def train(self,
+    def train_network(self,
             train_loader: BatchLoader, 
             epochs: int,
             val_loader: Optional[BatchLoader] = None,
@@ -141,6 +141,9 @@ class TimeFusion(nn.Module):
             optimizer: Optimizer used to update weights.
             lr_scheduler: Learning rate scheduler which modifies learning rate after each epoch.
         """
+
+        # Set the network into training mode
+        self.train(True)
 
         # Set default optimizer
         if optimizer is None:
@@ -215,6 +218,9 @@ class TimeFusion(nn.Module):
             1. For optimal performance, num_samples should be divisible by batch size.
             2. The timestamps must be drawn from the same distribution as those from the training data for best performance
         """
+
+        # Set the network into evaluation mode
+        self.train(False)
 
         # Generate context Tensor
         context = torch.empty(0, device = self.device)

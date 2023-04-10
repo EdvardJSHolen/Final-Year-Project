@@ -6,11 +6,12 @@ _start_time = time.time()
 print(f"Script started - Current runtime: {time.time() - _start_time}")
 
 # Import necessary libraries
+import random
+import torch
+import os
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import random
-import torch
 from timefusion import TimeFusion
 from torch import nn
 from diffusion import BatchLoader
@@ -66,6 +67,15 @@ data = data[1000:]
 
 print(f"Finished creating data - Current runtime: {time.time() - _start_time}")
 
+if torch.cuda.is_available():
+    device = torch.device("cuda:0")
+elif torch.backends.mps.is_available():
+    device = torch.device("mps")
+else:
+    device = torch.device("cpu")
+
+print(f"Using device: {device} - Current runtime: {time.time() - _start_time}")
+
 # Make the data into BatchLoaders
 train_loader = BatchLoader(
     data = data[:int(0.2*len(data))],
@@ -73,7 +83,7 @@ train_loader = BatchLoader(
     context_length = 50,
     prediction_length = 30,
     diff_steps = 100,
-    device = torch.device("cuda:0")
+    device = device
 )
 
 val_loader = BatchLoader(
@@ -82,7 +92,7 @@ val_loader = BatchLoader(
     context_length = 50,
     prediction_length = 30,
     diff_steps = 100,
-    device = torch.device("cuda:0")
+    device = device
 )
 
 print(f"BatchLoaders created - Current runtime: {time.time() - _start_time}")
@@ -96,7 +106,7 @@ predictor = TimeFusion(
     nhead=2,
     dim_feedforward=128,
     diff_steps=100,
-    device = torch.device("cuda:0"),
+    device = device,
 )
 
 print("Number of trainable parameters:",sum(p.numel() for p in predictor.parameters()))
@@ -106,7 +116,7 @@ lr_scheduler = torch.optim.lr_scheduler.LinearLR(optimizer, start_factor=1, end_
 
 print(f"Starting training - Current runtime: {time.time() - _start_time}")
 
-predictor.train(
+predictor.train_network(
     train_loader = train_loader,
     epochs=20,
     val_loader = val_loader,
@@ -119,6 +129,13 @@ predictor.train(
 )
 
 print(f"Finished training - Current runtime: {time.time() - _start_time}")
+
+if not os.path.exists("weights"):
+   os.makedirs("weights")
+
+torch.save(predictor, "weights/" + time.strftime("%Y-%m-%d-%H-%M-%S", time.gmtime()))
+
+print(f"Saved weights - Current runtime: {time.time() - _start_time}")
 
 print(f"Script ended - Total runtime: {time.time() - _start_time}")
 
