@@ -1,3 +1,4 @@
+
 # Library imports
 import torch
 import random
@@ -5,14 +6,20 @@ import math
 import calendar
 import pandas as pd
 import numpy as np
+from multiprocessing import Pool
+from itertools import repeat
+import multiprocessing
 
 # Module imports
 from torch import Tensor
 from typing import List, Callable
 
+
+
+
 # Iterable class which batches data
 class BatchLoader():
-        
+
     def __init__(
         self,
         data: pd.DataFrame, 
@@ -32,7 +39,8 @@ class BatchLoader():
             lambda x: math.cos(2*math.pi*x.day / calendar.monthrange(x.year, x.month)[1]),
             lambda x: math.cos(2*math.pi*x.month / 12),
         ],
-        lazy_init: bool = False
+        lazy_init: bool = False,
+        num_workers: int = None
     ) -> None:
         
         """
@@ -85,6 +93,7 @@ class BatchLoader():
         # Split each individual time-series into a separate DataFrame
         time_series = [data[[column] + list(data.columns[len(columns):])].dropna() for column in columns]
 
+        self.time_series_shape = (len(time_series),len(time_series[0].columns))
 
         # Find minimum and maximum index at which division between context and target can be made
         min_idx = data.index[0]
@@ -102,10 +111,16 @@ class BatchLoader():
             # Calculate input tokens
             contexts = []
             queries = []
-            for idx in data.index[(data.index >= min_idx) & (data.index <= max_idx)]:
-                # Fetch historical and future datapoints for timestamp index
-                contexts.append([ts[:idx][-self.context_length - 1: -1].values for ts in time_series])
-                queries.append([ts[idx:][:self.prediction_length].values for ts in time_series])
+
+            # Make the time series available to class functions
+            self.time_series = time_series
+            
+            # Calculate the context and query tokens
+            with Pool(num_workers) as p:
+                contexts, queries = zip(*p.map(self.get_token, data.index[(data.index >= min_idx) & (data.index <= max_idx)]))
+
+            # Delete time_series variable to save memory
+            del self.time_series
 
             contexts = torch.tensor(
                 np.array(contexts),
@@ -207,6 +222,11 @@ class BatchLoader():
                 # Increment counter
                 i += 1
 
+    def get_token(self, idx: pd.DatetimeIndex):
+        context = [ts[:idx][-self.context_length - 1: -1].values for ts in self.time_series]
+        query = [ts[idx:][:self.prediction_length].values for ts in self.time_series]
+        return context, query
+        
 
     @property
     def num_batches(self) -> int:
@@ -217,4 +237,5 @@ class BatchLoader():
             return math.ceil(len(self.indices) / self.batch_size)
         else:
             return math.ceil(len(self.tokens) / self.batch_size)
+
 
