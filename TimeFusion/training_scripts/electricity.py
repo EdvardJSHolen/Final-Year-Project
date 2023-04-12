@@ -1,4 +1,4 @@
-if __name__ == "__main__":       
+def main():   
     import time
 
     # Time at start
@@ -13,13 +13,14 @@ if __name__ == "__main__":
     import os
     import math
     from torch import nn
+    from torch.utils.data import DataLoader
     import numpy as np
     import pandas as pd
 
     # Set path to fix relative imports
     sys.path.append("..")
-    from diffusion import BatchLoader
-    from timefusion import TimeFusion
+    from data import TimeFusionDataset
+    from timefusion import TimeFusion, EarlyStopper
 
     print(f"Finished package imports - Current runtime: {time.time() - _start_time}")
 
@@ -66,83 +67,66 @@ if __name__ == "__main__":
 
     print(f"Using device: {device} - Current runtime: {time.time() - _start_time}")
 
-    # Make the data into BatchLoaders
-    train_loader = BatchLoader(
-        data = train_data[:int(0.9*len(train_data))],
-        batch_size = 128,
-        context_length = 48,
-        prediction_length = 24,
-        diff_steps = 100,
-        device = device,
-        timestamp_encodings=[
-            # lambda x: math.sin(2*math.pi*x.timestamp() / (3600*24)),
-            # lambda x: math.sin(2*math.pi*x.timestamp() / (3600*24*7)),
-            # lambda x: math.sin(2*math.pi*x.timestamp() / (3600*24*30)),
-            # lambda x: math.sin(2*math.pi*x.timestamp() / (3600*24*90)),
-            # lambda x: math.sin(2*math.pi*x.timestamp() / (3600*24*365)),
-            # lambda x: math.cos(2*math.pi*x.timestamp() / (3600*24)),
-            # lambda x: math.cos(2*math.pi*x.timestamp() / (3600*24*7)),
-            # lambda x: math.cos(2*math.pi*x.timestamp() / (3600*24*30)),
-            # lambda x: math.cos(2*math.pi*x.timestamp() / (3600*24*90)),
-            # lambda x: math.cos(2*math.pi*x.timestamp() / (3600*24*365)),
-        ]
-        #lazy_init= True
+    # Define some common variables
+    context_length = 48 
+    prediction_length = 24
+
+    encodings = [
+        # lambda x: math.sin(2*math.pi*x.timestamp() / (3600*24)),
+        # lambda x: math.sin(2*math.pi*x.timestamp() / (3600*24*7)),
+        # lambda x: math.sin(2*math.pi*x.timestamp() / (3600*24*30)),
+        # lambda x: math.sin(2*math.pi*x.timestamp() / (3600*24*90)),
+        # lambda x: math.sin(2*math.pi*x.timestamp() / (3600*24*365)),
+        # lambda x: math.cos(2*math.pi*x.timestamp() / (3600*24)),
+        # lambda x: math.cos(2*math.pi*x.timestamp() / (3600*24*7)),
+        # lambda x: math.cos(2*math.pi*x.timestamp() / (3600*24*30)),
+        # lambda x: math.cos(2*math.pi*x.timestamp() / (3600*24*90)),
+        # lambda x: math.cos(2*math.pi*x.timestamp() / (3600*24*365)),
+    ]
+
+    # Create each dataset
+    train_dataset = TimeFusionDataset(
+        data = train_data.iloc[:int(0.9*len(train_data))],
+        context_length = context_length,
+        prediction_length = prediction_length,
+        timestamp_encodings = encodings
     )
 
-    val_loader = BatchLoader(
-        data = train_data[int(0.9*len(train_data)):],
-        batch_size = 128,
-        context_length = 48,
-        prediction_length = 24,
-        diff_steps = 100,
-        device = device,
-        timestamp_encodings=[
-            # lambda x: math.sin(2*math.pi*x.timestamp() / (3600*24)),
-            # lambda x: math.sin(2*math.pi*x.timestamp() / (3600*24*7)),
-            # lambda x: math.sin(2*math.pi*x.timestamp() / (3600*24*30)),
-            # lambda x: math.sin(2*math.pi*x.timestamp() / (3600*24*90)),
-            # lambda x: math.sin(2*math.pi*x.timestamp() / (3600*24*365)),
-            # lambda x: math.cos(2*math.pi*x.timestamp() / (3600*24)),
-            # lambda x: math.cos(2*math.pi*x.timestamp() / (3600*24*7)),
-            # lambda x: math.cos(2*math.pi*x.timestamp() / (3600*24*30)),
-            # lambda x: math.cos(2*math.pi*x.timestamp() / (3600*24*90)),
-            # lambda x: math.cos(2*math.pi*x.timestamp() / (3600*24*365)),
-        ]
-        #lazy_init= True
+    val_dataset = TimeFusionDataset(
+        data = train_data.iloc[int(0.9*len(train_data)):],
+        context_length = context_length,
+        prediction_length = prediction_length,
+        timestamp_encodings = encodings
     )
 
-    test_loader = BatchLoader(
-        data = test_data,
+    train_loader = DataLoader(
+        dataset = train_dataset,
+        shuffle = True,
+        num_workers = 4,
         batch_size = 128,
-        context_length = 48,
-        prediction_length = 24,
-        diff_steps = 100,
-        device = device,
-        timestamp_encodings=[
-            # lambda x: math.sin(2*math.pi*x.timestamp() / (3600*24)),
-            # lambda x: math.sin(2*math.pi*x.timestamp() / (3600*24*7)),
-            # lambda x: math.sin(2*math.pi*x.timestamp() / (3600*24*30)),
-            # lambda x: math.sin(2*math.pi*x.timestamp() / (3600*24*90)),
-            # lambda x: math.sin(2*math.pi*x.timestamp() / (3600*24*365)),
-            # lambda x: math.cos(2*math.pi*x.timestamp() / (3600*24)),
-            # lambda x: math.cos(2*math.pi*x.timestamp() / (3600*24*7)),
-            # lambda x: math.cos(2*math.pi*x.timestamp() / (3600*24*30)),
-            # lambda x: math.cos(2*math.pi*x.timestamp() / (3600*24*90)),
-            # lambda x: math.cos(2*math.pi*x.timestamp() / (3600*24*365)),
-        ]
-        #lazy_init= True
+        pin_memory=True,
+        pin_memory_device="cuda:0"
     )
 
-    print(f"BatchLoaders created - Current runtime: {time.time() - _start_time}")
+    val_loader = DataLoader(
+        dataset = val_dataset,
+        shuffle = True,
+        num_workers = 4,
+        batch_size = 128,
+        pin_memory=True,
+        pin_memory_device="cuda:0"
+    )
+
+    print(f"DataLoaders created - Current runtime: {time.time() - _start_time}")
 
     predictor = TimeFusion(
-        context_length = 48,
-        prediction_length = 24,
-        timeseries_shape = train_loader.time_series_shape, 
-        num_encoder_layers=5,
+        context_length = context_length,
+        prediction_length = prediction_length,
+        timeseries_shape = (len(train_dataset.time_series),train_dataset.time_series[0].shape[1]), 
+        num_encoder_layers=3,
         d_model=512,
         nhead=32,
-        dim_feedforward=1048,
+        dim_feedforward=1024,
         diff_steps=100,
         device = device,
     )
@@ -152,20 +136,20 @@ if __name__ == "__main__":
     print([p.numel() for p in predictor.parameters()])
 
     optimizer = torch.optim.Adam(params=predictor.parameters(),lr=2e-4)
-    lr_scheduler = torch.optim.lr_scheduler.LinearLR(optimizer, start_factor=1, end_factor=0.01, total_iters=60)
+    lr_scheduler = torch.optim.lr_scheduler.LinearLR(optimizer, start_factor=1, end_factor=0.01, total_iters=20)
 
     print(f"Starting training - Current runtime: {time.time() - _start_time}")
 
     predictor.train_network(
         train_loader = train_loader,
-        epochs=15,
+        epochs=20,
         val_loader = val_loader,
         val_metrics= {
             "Val MAE": nn.L1Loss(),
-            "Val MSE": nn.MSELoss()
         },
         optimizer = optimizer,
-        lr_scheduler= lr_scheduler
+        lr_scheduler= lr_scheduler,
+        early_stopper=EarlyStopper(patience=10)
     )
 
     print(f"Finished training - Current runtime: {time.time() - _start_time}")
@@ -173,10 +157,11 @@ if __name__ == "__main__":
     if not os.path.exists("weights"):
         os.makedirs("weights")
 
-    torch.save(predictor, "weights/" + time.strftime("%Y-%m-%d-%H-%M-%S", time.gmtime()))
+    torch.save(predictor.state_dict(), "weights/" + time.strftime("%Y-%m-%d-%H-%M-%S", time.gmtime()))
 
     print(f"Saved weights - Current runtime: {time.time() - _start_time}")
 
     print(f"Script ended - Total runtime: {time.time() - _start_time}")
 
-                            
+if __name__ == "__main__":
+    main()

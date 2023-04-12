@@ -185,8 +185,8 @@ class TimeFusion(nn.Module):
 
             running_loss = 0
             for i, tokens in enumerate(train_loader, start = 1):
-                if self.device == torch.device("mps"):
-                    tokens = tokens.to(self.device)
+                #if self.device == torch.device("mps"):
+                tokens = tokens.to(self.device)
 
                 # Diffuse data
                 tokens, targets = self.diffuser.diffuse(tokens)
@@ -213,8 +213,8 @@ class TimeFusion(nn.Module):
                 with torch.no_grad():
                     running_loss = {key:0 for key in val_metrics.keys()}
                     for tokens in val_loader:
-                        if self.device == torch.device("mps"):
-                            tokens = tokens.to(self.device)
+                        #if self.device == torch.device("mps"):
+                        tokens = tokens.to(self.device)
 
                         # Diffuse data
                         tokens, targets = self.diffuser.diffuse(tokens)
@@ -293,8 +293,8 @@ class TimeFusion(nn.Module):
         # Repeat token to give correct batch size
         tokens = token.unsqueeze(0).repeat(batch_size,1,1,1)
 
-        if self.device == torch.device("mps"):
-            tokens = tokens.to(self.device)
+        #if self.device == torch.device("mps"):
+        tokens = tokens.to(self.device)
 
         # Sample
         samples = torch.empty(0, device = self.device)
