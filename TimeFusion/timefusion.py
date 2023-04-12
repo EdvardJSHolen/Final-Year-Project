@@ -3,6 +3,7 @@ import torch
 import math
 import time
 import numpy as np
+import calendar
 
 
 # Module imports
@@ -10,7 +11,10 @@ from torch import nn, Tensor, optim
 from torch.optim.lr_scheduler import _LRScheduler
 from typing import List, Callable, Optional, Dict, Tuple
 from pandas import DataFrame
-from diffusion import BatchLoader
+from data import TimeFusionDataset
+from diffusion import Diffuser
+from pandas import DatetimeIndex
+from torch.utils.data import DataLoader
 
 # Class accessible to end-user
 class TimeFusion(nn.Module):
@@ -47,28 +51,21 @@ class TimeFusion(nn.Module):
         super().__init__()
 
         ### Set instance variables ###
-
-        # Network parameters
         self.context_length = context_length
         self.prediction_length = prediction_length
         self.total_length  = context_length + prediction_length
         self.timeseries_shape = timeseries_shape
-
-        # Diffusion parameters
         self.diff_steps = diff_steps
-        self.betas = betas
-
-        if betas is None:
-            self.betas = np.linspace(1e-4, 0.1, diff_steps)
-
-        self.alphas = 1.0 - self.betas
-        self.bar_alphas = np.cumprod(self.alphas)
-
-        # Training parameters
         self.device = device
 
 
         ### Initialize all components of the network ###
+        self.diffuser = Diffuser(
+            prediction_length = prediction_length,
+            diff_steps = diff_steps,
+            betas = betas,
+            device = device
+        )
 
         self.embedding = nn.Linear(
             in_features = timeseries_shape[0]*timeseries_shape[1], 
@@ -123,9 +120,9 @@ class TimeFusion(nn.Module):
 
     # Function to train TimeFusion network
     def train_network(self,
-            train_loader: BatchLoader, 
+            train_loader: DataLoader, 
             epochs: int,
-            val_loader: Optional[BatchLoader] = None,
+            val_loader: Optional[DataLoader] = None,
             val_metrics: Optional[Dict[str,Callable]] = None,
             loss_function: Callable = nn.MSELoss(),
             optimizer: optim.Optimizer = None,
@@ -157,10 +154,12 @@ class TimeFusion(nn.Module):
         for epoch in range(1, epochs + 1):
 
             running_loss = 0
-            for i, batch in enumerate(train_loader, start = 1):
+            for i, tokens in enumerate(train_loader, start = 1):
+                if self.device == torch.device("mps"):
+                    tokens = tokens.to(self.device)
 
-                # Split data into context, queries and prediction targets
-                tokens, targets = batch
+                # Diffuse data
+                tokens, targets = self.diffuser.diffuse(tokens)
 
                 # Zero gradients
                 optimizer.zero_grad()
@@ -174,7 +173,7 @@ class TimeFusion(nn.Module):
                 # Print training statistics
                 running_loss += loss.item()
                 average_loss = running_loss / i
-                stat_string = "|" + "="*(30*i // train_loader.num_batches) + " "*(30 - (30*i // train_loader.num_batches)) + f"|  Batch: {i} / {train_loader.num_batches}, Epoch: {epoch} / {epochs}, Average Loss: {average_loss:.4f}"
+                stat_string = "|" + "="*(30*i // len(train_loader)) + " "*(30 - (30*i // len(train_loader))) + f"|  Batch: {i} / {len(train_loader)}, Epoch: {epoch} / {epochs}, Average Loss: {average_loss:.4f}"
                 print("\u007F"*512,stat_string,end="\r")
 
             if lr_scheduler:
@@ -183,14 +182,20 @@ class TimeFusion(nn.Module):
             if val_loader is not None:
                 with torch.no_grad():
                     running_loss = {key:0 for key in val_metrics.keys()}
-                    for i, batch in enumerate(val_loader, start = 1):
-                        tokens, targets = batch
+                    for tokens in val_loader:
+                        if self.device == torch.device("mps"):
+                            tokens = tokens.to(self.device)
+
+                        # Diffuse data
+                        tokens, targets = self.diffuser.diffuse(tokens)
+
+                        # Calculate prediction metrics
                         predictions = self.forward(tokens)
                         for key, metric_func in val_metrics.items():
                             running_loss[key] += metric_func(predictions,targets).item()
                     
                     for metric, value in running_loss.items():
-                        stat_string += f", {metric}: {value / val_loader.num_batches:.4f}"
+                        stat_string += f", {metric}: {value / len(val_loader):.4f}"
 
                     print("\u007F"*512,stat_string)
             else:
@@ -201,10 +206,20 @@ class TimeFusion(nn.Module):
     @torch.no_grad()
     def sample(
         self,
-        data: DataFrame,
-        timestamps: List[float],
+        data: TimeFusionDataset,
+        sample_indices: List[DatetimeIndex],
         num_samples: int = 1,
-        batch_size: int = 32
+        batch_size: int = 64,
+        timestamp_encodings: List[Callable] = [
+            lambda x: math.sin(2*math.pi*x.hour / 24),
+            lambda x: math.sin(2*math.pi*x.weekday() / 7),
+            lambda x: math.sin(2*math.pi*x.day / calendar.monthrange(x.year, x.month)[1]),
+            lambda x: math.sin(2*math.pi*x.month / 12),
+            lambda x: math.cos(2*math.pi*x.hour / 24),
+            lambda x: math.cos(2*math.pi*x.weekday() / 7),
+            lambda x: math.cos(2*math.pi*x.day / calendar.monthrange(x.year, x.month)[1]),
+            lambda x: math.cos(2*math.pi*x.month / 12),
+        ],
     ):
         
         """
@@ -221,41 +236,18 @@ class TimeFusion(nn.Module):
 
         # Set the network into evaluation mode
         self.train(False)
+        
+        # Get token for sample indices
+        token = data.get_sample_tensor(
+            sample_indices,
+            timestamp_encodings=timestamp_encodings
+        )
 
-        # Generate context Tensor
-        context = torch.empty(0, device = self.device)
-        for column in data.columns:
-            col_values = data[column].dropna()
-            col_tensor = torch.tensor(
-                [
-                    list(col_values.iloc[-self.context_length:]), # Value
-                    list(np.array(col_values.index[-self.context_length:] - data.index[-1])/self.context_length), # Timestamp
-                    list(np.zeros(shape=(self.context_length))) # Diffusion index
-                ],
-                dtype = torch.float32,
-                device = self.device
-            ).t()
-            context = torch.cat((context, col_tensor.unsqueeze(0)))
+        # Repeat token to give correct batch size
+        tokens = token.unsqueeze(0).repeat(batch_size,1,1,1)
 
-        # Create query Tensor (non-diffused)
-        query = torch.empty(0, device = self.device)
-        for j, column in enumerate(data.columns):
-            col_tensor = torch.tensor(
-                [
-                    [0]*self.prediction_length, # Value
-                    list(np.array(timestamps[j] - data.index[-1])/self.context_length), # Timestamp
-                    list(np.zeros(shape=(self.prediction_length))) # Diffusion index
-                ],
-                dtype = torch.float32,
-                device = self.device
-            ).t()
-            query = torch.cat((query, col_tensor.unsqueeze(0)))
-
-        # Combine queries and context
-        tokens = torch.cat((context,query), dim= -2)
-
-        # Repeat tokens such that the first dimension of the tokens tensor is equal to the batch size
-        tokens = tokens.unsqueeze(0).repeat([batch_size] + [1]*tokens.dim())
+        if self.device == torch.device("mps"):
+            tokens = tokens.to(self.device)
 
         # Sample
         samples = torch.empty(0, device = self.device)
@@ -266,27 +258,27 @@ class TimeFusion(nn.Module):
                 tokens = tokens[:num_samples - samples.shape[0]]
 
             # Sample initial white noise
-            tokens[:,:,self.context_length:,0] = torch.empty(size=tokens[:,:,self.context_length:,0].shape,device=self.device).normal_()
+            tokens = self.diffuser.denoise(
+                tokens = tokens,
+                epsilon = None,
+                n = self.diff_steps
+            )
 
             # Compute each diffusion step
             for n in range(self.diff_steps,0,-1):
 
-                # Set diffusion step
-                tokens[:,:,self.context_length:,-1] = torch.full(tokens[:,:,self.context_length:,-1].shape, 2*n / self.diff_steps - 1)
+                # Calculate predicted noise
+                epsilon = self.forward(tokens)
 
-                # Calculate output
-                output = self.forward(tokens)
+                # Calculate x_n
+                tokens = self.diffuser.denoise(
+                    tokens  = tokens,
+                    epsilon = epsilon,
+                    n = n
+                )
 
-                # Give new value to query
-                if n > 1:
-                    z = torch.empty(size=tokens[:,:,self.context_length:,0].shape,device=self.device).normal_()
-                else: 
-                    z = torch.zeros(size=tokens[:,:,self.context_length:,0].shape,device=self.device)
-
-                tokens[:,:,self.context_length:,0] = (1/math.sqrt(self.alphas[n-1]))*(tokens[:,:,self.context_length:,0] - (self.betas[n-1]/math.sqrt(1-self.bar_alphas[n-1]))*output) + math.sqrt(self.betas[n-1])*z
-
-            # Add denoised queries to samples
-            samples = torch.cat((samples, tokens[:,:,self.context_length:,0]))
+            # Add denoised tokens to samples
+            samples = torch.cat((samples, tokens[:,:,-self.prediction_length:,0]))
 
         return samples
 
@@ -317,5 +309,3 @@ class PositionalEncoding(nn.Module):
 # 5. Definitely need to speed up Transformers, must reduce input length or use a more efficient attention mechanism
 # 6. Weight decay?
 # 10. Add time to training statistics
-# 11. Need to consolidate beta schedules, currently define them two places.
-# 12. NEED TO SET model.eval() ????
