@@ -1,33 +1,63 @@
 # Library imports
 import torch
 import math
-import pandas as pd
+import time
+import copy
 import numpy as np
+import calendar
+
 
 # Module imports
 from torch import nn, Tensor, optim
-from typing import List, Callable, Optional, Dict
-from datetime import timedelta
-from math import pi
+from torch.optim.lr_scheduler import _LRScheduler
+from typing import List, Callable, Optional, Dict, Tuple
 from pandas import DataFrame
-from diffusion import BatchLoader
+from data import TimeFusionDataset
+from diffusion import Diffuser
+from pandas import DatetimeIndex
+from torch.utils.data import DataLoader
+
+### The following segment of code is from https://stackoverflow.com/questions/71998978/early-stopping-in-pytorch
+class EarlyStopper:
+    def __init__(self, patience=1, min_delta=0, restore_weights=True):
+        self.patience = patience
+        self.min_delta = min_delta
+        self.counter = 0
+        self.min_validation_loss = np.inf
+        self.restore_weights = restore_weights
+        self.best_weights = None
+
+    def early_stop(self, validation_loss, model):
+        if validation_loss > (self.min_validation_loss + self.min_delta):
+            self.counter += 1
+        else:
+            self.counter = 0
+
+        if validation_loss < self.min_validation_loss:
+            self.min_validation_loss = validation_loss
+            if self.restore_weights:
+                self.best_weights = copy.deepcopy(model.state_dict())
+
+        if self.counter >= self.patience:
+            if self.restore_weights:
+                return True, self.best_weights
+            return True, None
+        
+        return False, None
+###
 
 # Class accessible to end-user
 class TimeFusion(nn.Module):
 
     def __init__(
             self,
-            datapoint_dim: int,
             context_length: int,
             prediction_length: int,
-            start_length: int = 0,
-            indices: List[int] = [], 
-            timestamps: List[int] = [],
-            d_model: int = 32, 
-            nhead: int = 8, 
+            timeseries_shape: Tuple[int],
             num_encoder_layers: int = 6,
-            num_decoder_layers: int = 6, 
-            dim_feedforward: int = 128,
+            d_model: int = 32, 
+            nhead: int = 8,
+            dim_feedforward: int = 2048,
             diff_steps: int = 100,
             betas: List[float] = None,
             device: torch.device = torch.device("cpu"),
@@ -35,171 +65,137 @@ class TimeFusion(nn.Module):
         
         """
         Args:
-            datapoint_dim: The number of elements in a single datapoint
-            indices: Elements of datapoints to be encoded with sine/cos waves of arbitrary frequency
-            timestamps: Elements of datapoints containing timestamps to be encoded with sine/cos waves.
-            d_model: The number of features in the encoder/decoder inputs
-            nhead: The number of heads in the multi-head attention
-            num_encoder_layers: The number of sub-encoder-layers in the encoder
-            num_decoder_layers: The number of sub-decoder-layers in the decoder
-            dim_feedforward: The dimension of the feedforward network model in Transformer
-            device: The device on which computations should be performed (e.g. "cpu" or "cuda0")
+            context_length: The number of historical datapoints given to the network each time it makes a prediction.
+            prediction_length: The number of datapoints into the future which the network will predict.
+            timeseries_shape: The shape of the time-series at each time-instant (timeseries_dim, datapoint_dim).
+            num_encoder_layers: The number of encoder layers which in the Transformer part of the network.
+            d_model: The dimension of the tokens used by the Transformer part of the network.
+            nhead: The number of heads in the attention layers of the Transformer part of the network.
+            dim_feedforward: The dimension of the feedforward network model in Transformer.
+            diff_steps: Number of diffusion steps.
+            betas: Betas values for diffusion, will usually be an ascending list of numbers.
+            device: The device on which computations should be performed (e.g. "cpu" or "cuda0").
         """
         
         # Init nn.Module base class
         super().__init__()
 
-        # Set instance variables
+        ### Set instance variables ###
         self.context_length = context_length
         self.prediction_length = prediction_length
-        self.start_length = start_length
-        self.device = device
+        self.total_length  = context_length + prediction_length
+        self.timeseries_shape = timeseries_shape
         self.diff_steps = diff_steps
-    
-        if betas is None:
-            self.betas = np.linspace(1e-4, 0.1, diff_steps)
+        self.device = device
 
-        self.alphas = 1.0 - self.betas
-        self.bar_alphas = np.cumprod(self.alphas)
 
-        self.encoding = PositionalEncoding(
-            datapoint_dim = datapoint_dim,
-            indices = indices,
-            timestamps = timestamps,
-            device = device,
-            num_sines = 64
+        ### Initialize all components of the network ###
+        self.diffuser = Diffuser(
+            prediction_length = prediction_length,
+            diff_steps = diff_steps,
+            betas = betas,
+            device = device
         )
 
-        self.embedding = Embedding(
-            input_size = self.encoding.encoding_dim,
-            output_size = int(d_model/2),
-            hidden_size = 256,
-            device = device,
+        self.embedding = nn.Linear(
+            in_features = timeseries_shape[0]*timeseries_shape[1], 
+            out_features = d_model,
+            device = device
         )
 
-        self.transformer = nn.Transformer(
-            d_model = d_model,
-            nhead = nhead,
-            num_encoder_layers = num_encoder_layers,
-            num_decoder_layers = num_decoder_layers, 
-            dim_feedforward = dim_feedforward,
-            batch_first=True,
-            device = device,
-            dropout=0
-        )
-
-        #self.linear = nn.Linear(d_model, 1, device=device)
-        self.linear = nn.Linear(d_model, 2, device=device)
-        self.linear0  = nn.Linear(d_model, d_model, device=device)
-
-    def forward(self, context: Tensor, queries: Tensor) -> Tensor:
-        """
-        Args:
-            context: Input Tensor with shape [batch_size, num time-series, context length, datapoint dim]
-            queries: Input Tensor with shape [batch_size, num time-series, prediction length, datapoint dim]
-        Returns:
-            output Tensor of shape [batch_size, num time-series, prediction length]
-        """
-
-        # Store original shape of queries
-        query_shape = queries.shape
-
-        # Embed encoder inputs
-        context = self.encoding(context) 
-        context = self.embedding(context)
-
-        # Embed decoder inputs
-        queries = self.encoding(queries)
-        queries = self.embedding(queries)
-
-        # Flatten context and query embeddings
-        context = torch.permute(context, (0, 2, 1, 3))
-        queries = torch.permute(queries, (0, 2, 1, 3))
-        context = torch.flatten(context, start_dim=2, end_dim=3)
-        queries = torch.flatten(queries, start_dim=2, end_dim=3)
-        #context = torch.flatten(context, start_dim=1, end_dim=2)
-        #queries = torch.flatten(queries, start_dim=1, end_dim=2)
-
-        # Pass encoder and decoder inputs to Transformer
-        x = self.transformer(
-           src = context,
-           tgt = queries,
+        self.positional_encoding = PositionalEncoding(
+           d_model = d_model,
+           dropout = 0,
+           device = device
         )
         
-        # Pass Transformer outputs through linear layer
-        #x = nn.functional.relu(self.linear0(x))
-        x = self.linear(x)
+        self.transformer_encoder = nn.TransformerEncoder(
+            nn.TransformerEncoderLayer(
+                d_model = d_model, 
+                nhead = nhead,
+                dim_feedforward = dim_feedforward,
+                dropout = 0,
+                batch_first = True,
+                device = device
+            ),
+            num_layers = num_encoder_layers
+        )
+        
+        self.linear = nn.Linear(
+            in_features = d_model,
+            out_features = timeseries_shape[0],
+            device = device
+        )
+    
+    def forward(self, x: Tensor):
+        """
+        Args:
+            x: Tensor of shape (batch size, timeseries_dim, total length, datapoint_dim) or (timeseries_dim, total length, datapoint_dim))
+        """
 
-        # Reshape output to correct shape
-        x = x.reshape(query_shape[:-1])
+        # If data is unbatched, add a batch dimension
+        if x.dim() == 3:
+            x.unsqueeze(0)
 
-        x = x[:,:,self.start_length:]
+        # Pass input through network
+        x = torch.permute(x, (0, 2, 1, 3))
+        x = torch.flatten(x, start_dim=2)
+        x = self.embedding(x)
+        x = self.positional_encoding(x)
+        x = self.transformer_encoder(x)
+        x = self.linear(x[:,self.context_length:])
+        x = torch.permute(x, (0, 2, 1))
 
         return x
 
     # Function to train TimeFusion network
-    def train(self,
-            train_data: DataFrame, 
+    def train_network(self,
+            train_loader: DataLoader, 
             epochs: int,
-            batch_size: int = 64,
-            optimizer: optim.Optimizer = None,
+            val_loader: Optional[DataLoader] = None,
+            val_metrics: Optional[Dict[str,Callable]] = None,
             loss_function: Callable = nn.MSELoss(),
-            val_data: Optional[DataFrame] = None,
-            val_metrics: Optional[Dict[str,Callable]] = None
+            optimizer: optim.Optimizer = None,
+            lr_scheduler: _LRScheduler = None,
+            early_stopper: EarlyStopper = None,
         ) -> None:
         """
         Args:
-            data: Pandas DataFrame with timestamps as the index and a column for each time-series. Cells should be filled with
-            nan-values when a time-series does not have a datapoint at a given timestamp.
+            train_loader: Generator which provides batched training data.
             epochs: The number of epochs to train for.
-            num_batches_per_epoch: The number of batches to train on in a given epoch.
-            batch_size: The number of samples to process at the same time.
-            optimizer: Optimizer used to train weights
+            train_loader: Generator which provides batched validation data.
+            val_metrics: Name of metrics and callable functions to calculate them which measure the performance of the network.
             loss_function: Function to measure how well predictions match targets.
+            optimizer: Optimizer used to update weights.
+            lr_scheduler: Learning rate scheduler which modifies learning rate after each epoch.
         """
+
+        # Set the network into training mode
+        self.train(True)
 
         # Set default optimizer
         if optimizer is None:
-            optimizer = optim.Adam(params=self.parameters(),lr=2e-4,weight_decay=1e-5)
+            optimizer = optim.Adam(params = self.parameters(), lr = 1e-4)
 
-
-        train_loader = BatchLoader(
-            data = train_data,
-            batch_size = batch_size,
-            context_length = self.context_length,
-            prediction_length = self.prediction_length,
-            start_length = self.start_length,
-            diff_steps = self.diff_steps,
-            device = self.device
-        )
-
-        if not val_data is None:
-            if val_metrics is None:
-                val_metrics = {"Val loss": loss_function}
+        # Set default validation metrics
+        val_metrics = val_metrics | {"val_loss": loss_function}
             
-            val_loader = BatchLoader(
-                data = val_data,
-                batch_size = batch_size,
-                context_length = self.context_length,
-                prediction_length = self.prediction_length,
-                start_length = self.start_length,
-                diff_steps = self.diff_steps,
-                device = self.device
-            )
-        
 
         for epoch in range(1, epochs + 1):
 
             running_loss = 0
-            for i, batch in enumerate(train_loader, start = 1):
-                # Split data into context, queries and prediction targets
-                context, queries, targets = batch
+            for i, tokens in enumerate(train_loader, start = 1):
+                #if self.device == torch.device("mps"):
+                tokens = tokens.to(self.device)
+
+                # Diffuse data
+                tokens, targets = self.diffuser.diffuse(tokens)
 
                 # Zero gradients
                 optimizer.zero_grad()
 
                 # Forward, loss calculation, backward, optimizer step
-                predictions = self.forward(context,queries)
+                predictions = self.forward(tokens)
                 loss = loss_function(predictions,targets)
                 loss.backward()
                 optimizer.step()
@@ -207,266 +203,157 @@ class TimeFusion(nn.Module):
                 # Print training statistics
                 running_loss += loss.item()
                 average_loss = running_loss / i
-                stat_string = "|" + "="*(30*i // train_loader.num_batches) + " "*(30 - (30*i // train_loader.num_batches)) + f"|  Batch: {i} / {train_loader.num_batches}, Epoch: {epoch} / {epochs}, Average Loss: {average_loss:.4f}"
+                stat_string = "|" + "="*(30*i // len(train_loader)) + " "*(30 - (30*i // len(train_loader))) + f"|  Batch: {i} / {len(train_loader)}, Epoch: {epoch} / {epochs}, Average Loss: {average_loss:.4f}"
                 print("\u007F"*512,stat_string,end="\r")
 
-            if val_data is not None:
+            if lr_scheduler:
+                lr_scheduler.step()
+
+            if val_loader is not None:
                 with torch.no_grad():
                     running_loss = {key:0 for key in val_metrics.keys()}
-                    for i, batch in enumerate(val_loader, start = 1):
-                        context, queries, targets = batch
-                        predictions = self.forward(context,queries)
+                    for tokens in val_loader:
+                        #if self.device == torch.device("mps"):
+                        tokens = tokens.to(self.device)
+
+                        # Diffuse data
+                        tokens, targets = self.diffuser.diffuse(tokens)
+
+                        # Calculate prediction metrics
+                        predictions = self.forward(tokens)
                         for key, metric_func in val_metrics.items():
-                            running_loss[key] += metric_func(predictions,targets).item()
+                            running_loss[key] += metric_func(predictions,targets).item() 
                     
                     for metric, value in running_loss.items():
-                        stat_string += f", {metric}: {value / val_loader.num_batches:.4f}"
+                        stat_string += f", {metric}: {value / len(val_loader):.4f}"
 
                     print("\u007F"*512,stat_string)
+
+                    if not early_stopper is None:
+                        stop, weights = early_stopper.early_stop(running_loss["val_loss"] / len(val_loader),self)
+                        if stop:
+                            if not weights is None:
+                                self.load_state_dict(weights)
+                            break
             else:
+                if not early_stopper is None:
+                        stop, weights = early_stopper.early_stop(average_loss,self)
+                        if stop:
+                            if not weights is None:
+                                self.load_state_dict(weights)
+                            break
+
                 # New line for printing statistics
                 print()
+
+        if (not early_stopper is None) and early_stopper.restore_weights:
+            self.load_state_dict(early_stopper.best_weights)
+
 
     @torch.no_grad()
     def sample(
         self,
-        data: DataFrame,
+        data: TimeFusionDataset,
+        sample_indices: List[DatetimeIndex],
         num_samples: int = 1,
-        batch_size: int = 32
+        batch_size: int = 64,
+        timestamp_encodings: List[Callable] = [
+            lambda x: math.sin(2*math.pi*x.hour / 24),
+            lambda x: math.sin(2*math.pi*x.weekday() / 7),
+            lambda x: math.sin(2*math.pi*x.day / calendar.monthrange(x.year, x.month)[1]),
+            lambda x: math.sin(2*math.pi*x.month / 12),
+            lambda x: math.cos(2*math.pi*x.hour / 24),
+            lambda x: math.cos(2*math.pi*x.weekday() / 7),
+            lambda x: math.cos(2*math.pi*x.day / calendar.monthrange(x.year, x.month)[1]),
+            lambda x: math.cos(2*math.pi*x.month / 12),
+        ],
     ):
-        # TODO: MAKE THIS WORK WITH IRREGULAR TIME-SERIES DATA
-        # TODO: Optimize by splitting encoder from rest of transformer
-        # For optimal performance, num_samples should be divisible by batch size
-        # Does not yet work when start length is longer than context length
+        
+        """
+        Args:
+            data: Historical data which is fed as context to the network.
+            timestamps: Indexes at which to predict future values, length should be prediction length.
+            num_samples: Number of samples to sample from the network.
+            batch_size: The number of samples to process at the same time.
 
-        # Generate context Tensor
-        context = torch.empty(0, device = self.device)
-        for j, column in enumerate(data.columns):
-            col_values = data[column].dropna()
-            col_tensor = torch.tensor(
-                [
-                    list(col_values.iloc[-self.context_length:]), # Value
-                    list(col_values.index[-self.context_length:] - data.index[-1]), # Timestamp
-                    list(range(self.context_length)), # Datapoint index
-                    #list(np.full(shape=(context_length),fill_value=j)), # Time-series index
-                    list(np.zeros(shape=(self.context_length))) # Diffusion index
-                ],
-                dtype = torch.float32,
-                device = self.device
-            ).t()
-            context = torch.cat((context, col_tensor[None,:]))
+        Note:
+            1. For optimal performance, num_samples should be divisible by batch size.
+            2. The timestamps must be drawn from the same distribution as those from the training data for best performance
+        """
 
-        # Create query Tensor (non-diffused)
-        query = torch.empty(0, device = self.device)
-        for j, column in enumerate(data.columns):
-            col_tensor = torch.tensor(
-                [
-                    [0]*self.prediction_length, # Value
-                    list(np.array(range(1,self.prediction_length + 1))), # Timestamp
-                    list(range(self.context_length,self.prediction_length + self.context_length)), # Datapoint index
-                    #list(np.full(shape=(prediction_length + start_length),fill_value=j)), # Time-series index
-                    list(np.zeros(shape=(self.prediction_length))) # Diffusion index
-                ],
-                dtype = torch.float32,
-                device = self.device
-            ).t()
-            query = torch.cat((query, col_tensor[None,:]))
-        query = torch.cat((context[:,-self.start_length:,:],query),dim=1) # Add start token
+        # Set the network into evaluation mode
+        self.train(False)
+        
+        # Get token for sample indices
+        token = data.get_sample_tensor(
+            sample_indices,
+            timestamp_encodings=timestamp_encodings
+        )
 
+        # Repeat token to give correct batch size
+        tokens = token.unsqueeze(0).repeat(batch_size,1,1,1)
 
-        # Copy context and query tensor to be of same size as batch size (HACK)
-        context = context.unsqueeze(0).repeat([batch_size] + [1]*context.dim())
-        query = query.unsqueeze(0).repeat([batch_size] + [1]*query.dim())
+        #if self.device == torch.device("mps"):
+        tokens = tokens.to(self.device)
 
         # Sample
         samples = torch.empty(0, device = self.device)
-        iterations = torch.empty(0, device = self.device)
-        iterations2 = torch.empty(0, device = self.device)
         while samples.shape[0] < num_samples:
 
             # Make sure we do not make too many predictions if num_samples % batch_size is not equal to 0
             if num_samples - samples.shape[0] < batch_size:
-                query = query[:num_samples - samples.shape[0]]
-                context = context[:num_samples - samples.shape[0]]
+                tokens = tokens[:num_samples - samples.shape[0]]
 
             # Sample initial white noise
-            query[:,:,self.start_length:,0] = torch.empty(size=query[:,:,self.start_length:,0].shape,device=self.device).normal_()
+            tokens = self.diffuser.denoise(
+                tokens = tokens,
+                epsilon = None,
+                n = self.diff_steps
+            )
 
             # Compute each diffusion step
             for n in range(self.diff_steps,0,-1):
 
-                # Set diffusion step
-                query[:,:,self.start_length:,-1] = n
+                # Calculate predicted noise
+                epsilon = self.forward(tokens)
 
-                iterations = torch.cat((iterations, query))
+                # Calculate x_n
+                tokens = self.diffuser.denoise(
+                    tokens  = tokens,
+                    epsilon = epsilon,
+                    n = n
+                )
 
-                # Calculate output
-                output = self.forward(context,query)
+            # Add denoised tokens to samples
+            samples = torch.cat((samples, tokens[:,:,-self.prediction_length:,0]))
 
-                iterations2 = torch.cat((iterations2, output))
+        return samples
 
-                # Give new value to query
-                if n > 1:
-                    z = torch.empty(size=query[:,:,self.start_length:,0].shape,device=self.device).normal_()
-                else: 
-                    z = torch.zeros(size=query[:,:,self.start_length:,0].shape,device=self.device)
 
-                query[:,:,self.start_length:,0] = (1/math.sqrt(self.alphas[n-1]))*(query[:,:,self.start_length:,0] - (self.betas[n-1]/math.sqrt(1-self.bar_alphas[n-1]))*output) + math.sqrt(self.betas[n-1])*z
-
-            # Add denoised queries to samples
-            #samples = torch.cat((samples, query[:,:,self.start_length:]))
-            samples = torch.cat((samples, query))
-
-        return samples, iterations, iterations2
-
-# Sine/cos wave encodings of indices and timestamps
 class PositionalEncoding(nn.Module):
 
-    def __init__(
-            self,
-            datapoint_dim: int,
-            indices: List[int], 
-            timestamps: List[int],
-            device: torch.device,
-            num_sines: int = 64,
-            time_per: List[float] = [
-                timedelta(minutes=1).total_seconds()*1000,
-                timedelta(days=1).total_seconds()*1000,
-                timedelta(weeks=1).total_seconds()*1000,
-                timedelta(days=30).total_seconds()*1000,
-                timedelta(days=365).total_seconds()*1000,
-            ]
-        ) -> None:
+    def __init__(self, d_model: int, device,dropout: float = 0.1, max_len: int = 5000):
+        super().__init__()
+        self.dropout = nn.Dropout(p=dropout)
+
+        position = torch.arange(max_len,device=device).unsqueeze(1)
+        div_term = torch.exp(torch.arange(0, d_model, 2, device=device) * (-math.log(10000.0) / d_model))
+        pe = torch.zeros(max_len, d_model, device=device)
+        pe[:, 0::2] = torch.sin(position * div_term)
+        pe[:, 1::2] = torch.cos(position * div_term)
+        self.register_buffer('pe', pe)
+
+    def forward(self, x: Tensor) -> Tensor:
         """
         Args:
-            datapoint_dim: The number of elements in a single datapoint
-            indices: Elements of datapoints to be encoded with sine/cos waves of arbitrary frequency
-            timestamps: Elements of datapoints containing timestamps to be encoded with sine/cos waves.
-            device: The device for which returned Tensor should be created (e.g. "cpu" or "cuda0")
-            num_sines: Total number of sine and cosine waves used to encode indices
-            time_per: Period (in millis) of sine/cos waves used to encode timestamps
+            x: Tensor, shape [batch_size, seq_length, embedding_dim]
         """
+        x += self.pe[:x.size(1)]
+        return self.dropout(x)
     
-        # Assertions to ensure correct usage
-        assert num_sines % 2 == 0, "'num_sines' must be an even number"
-        assert all(0 <= idx < datapoint_dim for idx in indices), "'indices' are out of range"
-        assert all(0 <= idx < datapoint_dim for idx in timestamps), "'timestamps' are out of range"
 
-        # Init nn.Module base class
-        super().__init__()
-
-        # Set instance variables
-        self.datapoint_dim = datapoint_dim
-        self.device = device
-        self.indices = indices
-        self.timestamps = timestamps
-        self.num_sines = num_sines
-        self.time_per = time_per
-
-
-    def forward(self, source: Tensor) -> Tensor:
-        """
-        Args:
-            source: Input Tensor with shape [batch_size, num time-series, num datapoints, datapoint dim]
-
-        Returns:
-            output Tensor of shape [batch_size, num time-series, num datapoints, encoding dim]
-        """
-
-        # Shape of output
-        output_shape = source.shape[:-1] + tuple([self.encoding_dim])
-
-        # Initialize empty tensor where output values will be stored
-        out = torch.zeros(output_shape, dtype=torch.float, device=self.device)
-
-        # Datapoint indexes not to be changed
-        unchanged_idx = set(range(source.shape[-1])) - set(self.indices) - set(self.timestamps)
-
-        # Forward all values not to be changed from source to out
-        out[:,:,:,:len(unchanged_idx)] = source[:,:,:,list(unchanged_idx)]
-
-        # Encode all indices with cos/sine waves (identical implementation to vanilla transformer sine encodings)
-        offset = len(unchanged_idx)
-        for i in range(self.num_sines // 2):
-            out[:,:,:,offset:offset + len(self.indices)] = torch.sin(source[:,:,:,self.indices]/(10000**(2*i/self.num_sines)))
-            offset += len(self.indices)
-            out[:,:,:,offset:offset + len(self.indices)] = torch.cos(source[:,:,:,self.indices]/(10000**(2*i/self.num_sines)))
-            offset += len(self.indices)
-
-        # Encode all timestamps with cos/sine waves
-        for per in self.time_per:
-            out[:,:,:,offset:offset + len(self.timestamps)] = torch.sin(source[:,:,:,self.timestamps]*(2*pi/per))
-            offset += len(self.timestamps)
-            out[:,:,:,offset:offset + len(self.timestamps)] = torch.cos(source[:,:,:,self.timestamps]*(2*pi/per))
-            offset += len(self.timestamps)
-
-        return out
-
-    @property
-    def encoding_dim(self) -> int:
-        """
-        Returns: The encoding length of datapoints
-        """
-        return self.datapoint_dim + len(self.timestamps)*(2*len(self.time_per) - 1) + len(self.indices)*(2*self.num_sines - 1)
-
-
-# Embed encodings of datapoints to dimension used by Transformer
-class Embedding(nn.Module):
-
-    def __init__(
-            self,
-            input_size: int,
-            output_size: int,
-            device: torch.device,
-            hidden_size: int = 64,
-        ):
-        """
-        Args:
-            input_size: Last dimension of input Tensor
-            output_size: Last dimension of output Tensor 
-            device: The device with which data should be processed (e.g. "cpu" or "cuda0")
-            hidden_size: Size of hidden layer in neural network
-        """
-        
-        # Init nn.Module base class
-        super().__init__()
-
-        # Set instance variables
-        self.device = device
-        self.input_size = input_size
-        self.output_size = output_size
-        self.fc1 = nn.Linear(input_size, hidden_size, device=device)
-        self.fc2 = nn.Linear(hidden_size, output_size, device=device)
-
-
-    def forward(self, source: Tensor) -> Tensor:
-        """
-        Args:
-            source: Input Tensor with shape [batch_size, num time-series, num datapoints, encoding dim]
-
-        Returns:
-            output Tensor of shape [batch_size, num time-series, num datapoints, embedding dim]
-        """
-
-        x = nn.functional.relu(self.fc1(source))
-        x = self.fc2(x)
-
-        return x
 
 # TODO:
-# 1. Investigate where it is beneficial to add @torch.no_grad() decorator
-# 2. Investigate weight initilization for linear layers
-# 3. Split Transformer into encoder and decoder such that I can reduce computation during inference
-# 4. Normalize input data?
 # 5. Definitely need to speed up Transformers, must reduce input length or use a more efficient attention mechanism
 # 6. Weight decay?
-# 7. Use learning rate scheduler
-# 8. Figure out how to define "epoch" for time-series data
-# 9. Refine method of feeding data to network such that we can also feed covariates. Need to think how to represent it in pandas dataframe. Maybe just use tuple entries. Can use multiindex
 # 10. Add time to training statistics
-# 11. Need to consolidate beta schedules, currently define them two places.
-# 12. NEED TO SET model.eval() ????
-
-
-# NOTE:
-# 1. Definitiely should use @torch.no_grad() when measuring inference as this avoids the tracking of gradients, making it 6! times faster
