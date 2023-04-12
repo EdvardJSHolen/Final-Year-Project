@@ -2,6 +2,7 @@
 import torch
 import math
 import time
+import copy
 import numpy as np
 import calendar
 
@@ -15,6 +16,35 @@ from data import TimeFusionDataset
 from diffusion import Diffuser
 from pandas import DatetimeIndex
 from torch.utils.data import DataLoader
+
+### The following segment of code is from https://stackoverflow.com/questions/71998978/early-stopping-in-pytorch
+class EarlyStopper:
+    def __init__(self, patience=1, min_delta=0, restore_weights=True):
+        self.patience = patience
+        self.min_delta = min_delta
+        self.counter = 0
+        self.min_validation_loss = np.inf
+        self.restore_weights = restore_weights
+        self.best_weights = None
+
+    def early_stop(self, validation_loss, model):
+        if validation_loss > (self.min_validation_loss + self.min_delta):
+            self.counter += 1
+        else:
+            self.counter = 0
+
+        if validation_loss < self.min_validation_loss:
+            self.min_validation_loss = validation_loss
+            if self.restore_weights:
+                self.best_weights = copy.deepcopy(model.state_dict())
+
+        if self.counter >= self.patience:
+            if self.restore_weights:
+                return True, self.best_weights
+            return True, None
+        
+        return False, None
+###
 
 # Class accessible to end-user
 class TimeFusion(nn.Module):
@@ -126,7 +156,8 @@ class TimeFusion(nn.Module):
             val_metrics: Optional[Dict[str,Callable]] = None,
             loss_function: Callable = nn.MSELoss(),
             optimizer: optim.Optimizer = None,
-            lr_scheduler: _LRScheduler = None
+            lr_scheduler: _LRScheduler = None,
+            early_stopper: EarlyStopper = None,
         ) -> None:
         """
         Args:
@@ -147,8 +178,7 @@ class TimeFusion(nn.Module):
             optimizer = optim.Adam(params = self.parameters(), lr = 1e-4)
 
         # Set default validation metrics
-        if val_metrics is None:
-            val_metrics = {"Val loss": loss_function}
+        val_metrics = val_metrics | {"val_loss": loss_function}
             
 
         for epoch in range(1, epochs + 1):
@@ -192,15 +222,32 @@ class TimeFusion(nn.Module):
                         # Calculate prediction metrics
                         predictions = self.forward(tokens)
                         for key, metric_func in val_metrics.items():
-                            running_loss[key] += metric_func(predictions,targets).item()
+                            running_loss[key] += metric_func(predictions,targets).item() 
                     
                     for metric, value in running_loss.items():
                         stat_string += f", {metric}: {value / len(val_loader):.4f}"
 
                     print("\u007F"*512,stat_string)
+
+                    if not early_stopper is None:
+                        stop, weights = early_stopper.early_stop(running_loss["val_loss"] / len(val_loader),self)
+                        if stop:
+                            if not weights is None:
+                                self.load_state_dict(weights)
+                            break
             else:
+                if not early_stopper is None:
+                        stop, weights = early_stopper.early_stop(average_loss,self)
+                        if stop:
+                            if not weights is None:
+                                self.load_state_dict(weights)
+                            break
+
                 # New line for printing statistics
                 print()
+
+        if (not early_stopper is None) and early_stopper.restore_weights:
+            self.load_state_dict(early_stopper.best_weights)
 
 
     @torch.no_grad()
@@ -303,6 +350,7 @@ class PositionalEncoding(nn.Module):
         """
         x += self.pe[:x.size(1)]
         return self.dropout(x)
+    
 
 
 # TODO:
