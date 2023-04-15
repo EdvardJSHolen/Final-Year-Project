@@ -38,7 +38,8 @@ class TimeFusionDataset(Dataset):
             self.data_copy.insert(len(self.data_copy.columns), len(self.data_copy.columns), [encoding(x) for x in self.data_copy.index], allow_duplicates=True)
 
         # Add column for diffusion index
-        self.data_copy[len(self.data_copy.columns)] = 0
+        #self.data_copy[len(self.data_copy.columns)] = 0
+        self.data_copy[len(self.data_copy.columns)] = -1
 
         # Positions at which to cut each tensor when creating token
         indices = np.cumsum(data.notnull().values, axis=0)

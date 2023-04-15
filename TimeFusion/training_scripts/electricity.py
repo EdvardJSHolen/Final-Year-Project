@@ -69,7 +69,7 @@ def main():
 
     # Define some common variables
     context_length = 48 
-    prediction_length = 24
+    prediction_length = 1
 
     encodings = [
         # lambda x: math.sin(2*math.pi*x.timestamp() / (3600*24)),
@@ -104,8 +104,8 @@ def main():
         shuffle = True,
         num_workers = 4,
         batch_size = 128,
-        pin_memory=True,
-        pin_memory_device="cuda:0"
+        #pin_memory=True,
+        #pin_memory_device="cuda:0"
     )
 
     val_loader = DataLoader(
@@ -113,8 +113,8 @@ def main():
         shuffle = True,
         num_workers = 4,
         batch_size = 128,
-        pin_memory=True,
-        pin_memory_device="cuda:0"
+        #pin_memory=True,
+        #pin_memory_device="cuda:0"
     )
 
     print(f"DataLoaders created - Current runtime: {time.time() - _start_time}")

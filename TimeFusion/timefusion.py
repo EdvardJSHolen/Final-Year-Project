@@ -103,11 +103,25 @@ class TimeFusion(nn.Module):
             device = device
         )
 
-        self.positional_encoding = PositionalEncoding(
-           d_model = d_model,
-           dropout = 0,
-           device = device
-        )
+        # self.positional_encoding = PositionalEncoding(
+        #    d_model = d_model,
+        #    dropout = 0,
+        #    device = device
+        # )
+
+        position = torch.arange(self.context_length + self.prediction_length,device=device).unsqueeze(1)
+        div_term = torch.exp(torch.arange(0, d_model, 2, device=device) * (-math.log(10000.0) / d_model))
+        pe = torch.zeros(self.context_length + self.prediction_length, d_model, device=device)
+        pe[:, 0::2] = torch.sin(position * div_term)
+        pe[:, 1::2] = torch.cos(position * div_term)
+
+        W_pos = torch.empty((self.context_length + self.prediction_length, d_model), device=device)
+        #nn.init.uniform_(W_pos, -0.02, 0.02)
+        W_pos = pe
+        self.W_pos = nn.Parameter(W_pos, requires_grad=True)
+
+        # print(self.W_pos)
+
         
         self.transformer_encoder = nn.TransformerEncoder(
             nn.TransformerEncoderLayer(
@@ -141,7 +155,13 @@ class TimeFusion(nn.Module):
         x = torch.permute(x, (0, 2, 1, 3))
         x = torch.flatten(x, start_dim=2)
         x = self.embedding(x)
-        x = self.positional_encoding(x)
+        #x = self.positional_encoding(x)
+        # Positional encoding
+
+        # Positional encoding
+        #for i in range(x.shape[0]):    
+        x = x + self.W_pos
+
         x = self.transformer_encoder(x)
         x = self.linear(x[:,self.context_length:])
         x = torch.permute(x, (0, 2, 1))
@@ -255,6 +275,7 @@ class TimeFusion(nn.Module):
         self,
         data: TimeFusionDataset,
         sample_indices: List[DatetimeIndex],
+        prediction_length: int,
         num_samples: int = 1,
         batch_size: int = 64,
         timestamp_encodings: List[Callable] = [
@@ -291,22 +312,27 @@ class TimeFusion(nn.Module):
         )
 
         # Repeat token to give correct batch size
-        tokens = token.unsqueeze(0).repeat(batch_size,1,1,1)
+        #tokens = token.unsqueeze(0).repeat(batch_size,1,1,1)
+        tokens = token.unsqueeze(0).repeat(num_samples,1,1,1)
 
         #if self.device == torch.device("mps"):
         tokens = tokens.to(self.device)
 
         # Sample
         samples = torch.empty(0, device = self.device)
-        while samples.shape[0] < num_samples:
+        #while samples.shape[0] < num_samples:
+        for i in range(prediction_length):
+
+            tmp_tokens = tokens[:,:,i:self.context_length+i+1]
+
 
             # Make sure we do not make too many predictions if num_samples % batch_size is not equal to 0
-            if num_samples - samples.shape[0] < batch_size:
-                tokens = tokens[:num_samples - samples.shape[0]]
+            # if num_samples - samples.shape[0] < batch_size:
+            #     tokens = tokens[:num_samples - samples.shape[0]]
 
             # Sample initial white noise
-            tokens = self.diffuser.denoise(
-                tokens = tokens,
+            tmp_tokens = self.diffuser.denoise(
+                tokens = tmp_tokens,
                 epsilon = None,
                 n = self.diff_steps
             )
@@ -315,19 +341,22 @@ class TimeFusion(nn.Module):
             for n in range(self.diff_steps,0,-1):
 
                 # Calculate predicted noise
-                epsilon = self.forward(tokens)
+                epsilon = self.forward(tmp_tokens)
 
                 # Calculate x_n
-                tokens = self.diffuser.denoise(
-                    tokens  = tokens,
+                tmp_tokens = self.diffuser.denoise(
+                    tokens  = tmp_tokens,
                     epsilon = epsilon,
                     n = n
                 )
 
-            # Add denoised tokens to samples
-            samples = torch.cat((samples, tokens[:,:,-self.prediction_length:,0]))
+            tokens[:,:,self.context_length + i,0] = tmp_tokens[:,:,-1,0]
+            tokens[:,:,self.context_length + i,-1] = -1
 
-        return samples
+            # Add denoised tokens to samples
+            #samples = torch.cat((samples, tokens[:,:,-self.prediction_length:,0]))
+
+        return tokens
 
 
 class PositionalEncoding(nn.Module):
