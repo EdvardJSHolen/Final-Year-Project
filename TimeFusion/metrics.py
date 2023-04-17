@@ -61,7 +61,7 @@ def crps(F: np.ndarray, x: float) -> float:
     """
         F: [num samples]
     """
-    return integrate.quad(lambda y: (percentileofscore(F,y,kind="weak")/100 - np.heaviside(y - x, 1))**2, -math.inf, math.inf)
+    return integrate.quad(lambda y: (percentileofscore(F,y,kind="weak")/100 - np.heaviside(y - x, 1))**2, min(min(F),x), max(max(F),x),epsrel=1.49e-2,limit=100)
 
 
 def crps_sum(realisations: np.ndarray, predictions: np.ndarray) -> float:

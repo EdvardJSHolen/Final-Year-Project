@@ -312,23 +312,15 @@ class TimeFusion(nn.Module):
         )
 
         # Repeat token to give correct batch size
-        #tokens = token.unsqueeze(0).repeat(batch_size,1,1,1)
         tokens = token.unsqueeze(0).repeat(num_samples,1,1,1)
 
         #if self.device == torch.device("mps"):
         tokens = tokens.to(self.device)
 
         # Sample
-        samples = torch.empty(0, device = self.device)
-        #while samples.shape[0] < num_samples:
         for i in range(prediction_length):
 
             tmp_tokens = tokens[:,:,i:self.context_length+i+1]
-
-
-            # Make sure we do not make too many predictions if num_samples % batch_size is not equal to 0
-            # if num_samples - samples.shape[0] < batch_size:
-            #     tokens = tokens[:num_samples - samples.shape[0]]
 
             # Sample initial white noise
             tmp_tokens = self.diffuser.denoise(
@@ -352,9 +344,6 @@ class TimeFusion(nn.Module):
 
             tokens[:,:,self.context_length + i,0] = tmp_tokens[:,:,-1,0]
             tokens[:,:,self.context_length + i,-1] = -1
-
-            # Add denoised tokens to samples
-            #samples = torch.cat((samples, tokens[:,:,-self.prediction_length:,0]))
 
         return tokens
 
