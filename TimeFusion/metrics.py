@@ -42,18 +42,18 @@ def variogram_score(
             for x1, x2 in windowed_product(num_timesteps, window_size):
                 weight =  1 - (abs(x2 - x1)/window_size)**2
                 for y1, y2 in combinations(range(num_timeseries),2):
-                    variogram_sum += weight * ((abs(realisations[y1,x1] - realisations[y2,x2])**p - np.sum(abs(predictions[:,y1,x1] - predictions[:,y2,x2])**p))**2)
+                    variogram_sum += weight * ((abs(realisations[y1,x1] - realisations[y2,x2])**p - np.mean(abs(predictions[:,y1,x1] - predictions[:,y2,x2])**p))**2)
         case "inverse":
             variogram_sum = 0
             for x1, x2 in product(range(num_timesteps), repeat=2):
                 weight = 1 / (1 + abs(x1 - x2)) # Slight generalisation of original paper used here
                 for y1, y2 in combinations(range(num_timeseries),2):
-                    variogram_sum += weight * ((abs(realisations[y1,x1] - realisations[y2,x2])**p - np.sum(abs(predictions[:,y1,x1] - predictions[:,y2,x2])**p))**2)
+                    variogram_sum += weight * ((abs(realisations[y1,x1] - realisations[y2,x2])**p - np.mean(abs(predictions[:,y1,x1] - predictions[:,y2,x2])**p))**2)
         case _:
             variogram_sum = 0
             for x1, x2 in product(range(num_timesteps), repeat=2):
                 for y1, y2 in combinations(range(num_timeseries),2):
-                    variogram_sum += (abs(realisations[y1,x1] - realisations[y2,x2])**p - np.sum(abs(predictions[:,y1,x1] - predictions[:,y2,x2])**p))**2
+                    variogram_sum += (abs(realisations[y1,x1] - realisations[y2,x2])**p - np.mean(abs(predictions[:,y1,x1] - predictions[:,y2,x2])**p))**2
 
     return variogram_sum
 
@@ -61,8 +61,9 @@ def crps(F: np.ndarray, x: float) -> float:
     """
         F: [num samples]
     """
-    return integrate.quad(lambda y: (percentileofscore(F,y,kind="weak")/100 - np.heaviside(y - x, 1))**2, min(min(F),x), max(max(F),x),epsrel=1.49e-2,limit=100)
+    integral_values = integrate.quad(lambda y: (percentileofscore(F,y,kind="weak")/100 - np.heaviside(y - x, 1))**2, min(min(F),x), max(max(F),x),epsrel=1.49e-2,limit=100)
 
+    return integral_values[0]
 
 def crps_sum(realisations: np.ndarray, predictions: np.ndarray) -> float:
     """
