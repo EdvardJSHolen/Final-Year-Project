@@ -42,7 +42,7 @@ class Diffuser():
 
         # Diffuse data
         n = torch.randint(1, self.diff_steps + 1, size = tokens.shape[:1], device=self.device)
-        tokens[:,:,-self.prediction_length:,-1] = (2*n / self.diff_steps - 1).view(-1,1,1)
+        tokens[:,:,-self.prediction_length:,-1] = (n / self.diff_steps).view(-1,1,1)#(2*n / self.diff_steps - 1).view(-1,1,1)
         tokens[:,:,-self.prediction_length:,0] = torch.sqrt(self.bar_alphas[n-1]).view((-1,1,1)) * tokens[:,:,-self.prediction_length:,0] + torch.sqrt(1 - self.bar_alphas[n - 1]).view((-1,1,1)) * targets
 
         return tokens, targets
@@ -54,7 +54,7 @@ class Diffuser():
         assert 0 <= n <= self.diff_steps, "Requested diffusion step exceeds the defined diffusion step range"
 
         # Set diffusion index
-        tokens[:,:,-self.prediction_length:,-1] = torch.full(tokens[:,:,-self.prediction_length:,-1].shape, 2*n / self.diff_steps - 1)
+        tokens[:,:,-self.prediction_length:,-1] = torch.full(tokens[:,:,-self.prediction_length:,-1].shape, n/self.diff_steps)#2*n / self.diff_steps - 1)
     
         if n == self.diff_steps:
             # Sample initial white noise
