@@ -189,13 +189,20 @@ class TimeFusion(nn.Module):
                 tokens = tokens.to(self.device)
 
                 # Diffuse data
-                tokens, targets = self.diffuser.diffuse(tokens)
+                tokens, targets, alphas_out, bar_alphas_out = self.diffuser.diffuse(tokens)
+
+                tok_copy = torch.clone(tokens[:,:,-self.prediction_length:,0])
 
                 # Zero gradients
                 optimizer.zero_grad()
 
                 # Forward, loss calculation, backward, optimizer step
                 predictions = self.forward(tokens)
+
+                #print(tok_copy.shape,torch.sqrt(alphas_out).view((-1,1,1)).shape,predictions.shape)
+
+                predictions = (tok_copy - torch.sqrt(alphas_out).view((-1,1,1)) * predictions) * torch.sqrt(1 - bar_alphas_out).view((-1,1,1)) / (1 - alphas_out).view((-1,1,1))
+
                 loss = loss_function(predictions,targets)
                 loss.backward()
                 optimizer.step()
@@ -209,42 +216,44 @@ class TimeFusion(nn.Module):
             if lr_scheduler:
                 lr_scheduler.step()
 
-            if val_loader is not None:
-                with torch.no_grad():
-                    running_loss = {key:0 for key in val_metrics.keys()}
-                    for tokens in val_loader:
-                        #if self.device == torch.device("mps"):
-                        tokens = tokens.to(self.device)
+            # if val_loader is not None:
+            #     with torch.no_grad():
+            #         running_loss = {key:0 for key in val_metrics.keys()}
+            #         for tokens in val_loader:
+            #             #if self.device == torch.device("mps"):
+            #             tokens = tokens.to(self.device)
 
-                        # Diffuse data
-                        tokens, targets = self.diffuser.diffuse(tokens)
+            #             # Diffuse data
+            #             tokens, targets = self.diffuser.diffuse(tokens)
 
-                        # Calculate prediction metrics
-                        predictions = self.forward(tokens)
-                        for key, metric_func in val_metrics.items():
-                            running_loss[key] += metric_func(predictions,targets).item() 
+            #             # Calculate prediction metrics
+            #             predictions = self.forward(tokens)
+            #             for key, metric_func in val_metrics.items():
+            #                 running_loss[key] += metric_func(predictions,targets).item() 
                     
-                    for metric, value in running_loss.items():
-                        stat_string += f", {metric}: {value / len(val_loader):.4f}"
+            #         for metric, value in running_loss.items():
+            #             stat_string += f", {metric}: {value / len(val_loader):.4f}"
 
-                    print("\u007F"*512,stat_string)
+            #         print("\u007F"*512,stat_string)
 
-                    if not early_stopper is None:
-                        stop, weights = early_stopper.early_stop(running_loss["val_loss"] / len(val_loader),self)
-                        if stop:
-                            if not weights is None:
-                                self.load_state_dict(weights)
-                            break
-            else:
-                if not early_stopper is None:
-                        stop, weights = early_stopper.early_stop(average_loss,self)
-                        if stop:
-                            if not weights is None:
-                                self.load_state_dict(weights)
-                            break
+            #         if not early_stopper is None:
+            #             stop, weights = early_stopper.early_stop(running_loss["val_loss"] / len(val_loader),self)
+            #             if stop:
+            #                 if not weights is None:
+            #                     self.load_state_dict(weights)
+            #                 break
+            # else:
+            #     if not early_stopper is None:
+            #             stop, weights = early_stopper.early_stop(average_loss,self)
+            #             if stop:
+            #                 if not weights is None:
+            #                     self.load_state_dict(weights)
+            #                 break
 
-                # New line for printing statistics
-                print()
+            #     # New line for printing statistics
+            #     print()
+
+            print()
 
         if (not early_stopper is None) and early_stopper.restore_weights:
             self.load_state_dict(early_stopper.best_weights)

@@ -45,7 +45,10 @@ class Diffuser():
         tokens[:,:,-self.prediction_length:,-1] = (n / self.diff_steps).view(-1,1,1)#(2*n / self.diff_steps - 1).view(-1,1,1)
         tokens[:,:,-self.prediction_length:,0] = torch.sqrt(self.bar_alphas[n-1]).view((-1,1,1)) * tokens[:,:,-self.prediction_length:,0] + torch.sqrt(1 - self.bar_alphas[n - 1]).view((-1,1,1)) * targets
 
-        return tokens, targets
+        alphas_out = self.alphas[n-1]
+        bar_alphas_out = self.bar_alphas[n-1]
+
+        return tokens, targets, alphas_out, bar_alphas_out
 
     @torch.no_grad()
     def denoise(self, tokens: Tensor, epsilon: Tensor, n: int) -> Tensor:
