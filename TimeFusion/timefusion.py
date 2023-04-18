@@ -1,23 +1,22 @@
 # Library imports
 import torch
 import math
-import time
 import copy
-import numpy as np
 import calendar
+import numpy as np
 
 
 # Module imports
 from torch import nn, Tensor, optim
+from torch.utils.data import DataLoader
 from torch.optim.lr_scheduler import _LRScheduler
+from pandas import DatetimeIndex
 from typing import List, Callable, Optional, Dict, Tuple
-from pandas import DataFrame
+
+# Relative imports
 from data import TimeFusionDataset
 from diffusion import Diffuser
-from pandas import DatetimeIndex
-from torch.utils.data import DataLoader
 
-### The following segment of code is from https://stackoverflow.com/questions/71998978/early-stopping-in-pytorch
 class EarlyStopper:
     def __init__(self, patience=1, min_delta=0, restore_weights=True):
         self.patience = patience
@@ -44,7 +43,59 @@ class EarlyStopper:
             return True, None
         
         return False, None
-###
+
+
+class MeanScaler(nn.Module):
+    def __init__(
+            self, 
+            context_length: int,
+            device: torch.device,
+            min_scale: float = 1e-3
+        ):
+
+        # Init nn.Module base class
+        super().__init__()
+
+        # Set instance variables
+        self.context_length = context_length
+        self.device = device
+        self.min_scale = min_scale
+        self.scales = None
+
+    def forward(self, x: Tensor):
+        """
+        Args:
+            x: Tensor of shape (batch size, timeseries_dim, total length, datapoint_dim)
+        Returns:
+            x: Input Tensor scaled by mean absolute values
+        """
+        # Calculate the mean absolute value of the context data of each time series
+        means = torch.mean(x[:,:,:self.context_length,0].abs(), dim=2)
+
+        # Replace means which are too small
+        scales = torch.maximum(means, torch.full(means.shape, self.min_scale, device=self.device))
+
+        # Scale the data
+        x[:,:,:,0] /= scales.unsqueeze(-1)
+
+        # Store the scales
+        self.scales = scales
+
+        return x
+    
+    def unscale(self, x: Tensor):
+        """
+        Args:
+            x: Tensor of shape (batch size, timeseries_dim, total length, datapoint_dim)
+        Returns:
+            x: Input Tensor scaled by stored scales
+        """
+
+        # Scale the data
+        x[:,:,:,0] *= self.scales.unsqueeze(-1)
+
+        return x
+
 
 # Class accessible to end-user
 class TimeFusion(nn.Module):
@@ -55,6 +106,7 @@ class TimeFusion(nn.Module):
             prediction_length: int,
             timeseries_shape: Tuple[int],
             num_encoder_layers: int = 6,
+            scaling: bool = False,
             d_model: int = 32, 
             nhead: int = 8,
             dim_feedforward: int = 2048,
@@ -85,11 +137,19 @@ class TimeFusion(nn.Module):
         self.prediction_length = prediction_length
         self.total_length  = context_length + prediction_length
         self.timeseries_shape = timeseries_shape
+        self.scaling = scaling
         self.diff_steps = diff_steps
         self.device = device
 
 
         ### Initialize all components of the network ###
+        if scaling:
+            self.scaler = MeanScaler(
+                context_length = context_length,
+                device = device,
+                min_scale = 0.01
+            )
+
         self.diffuser = Diffuser(
             prediction_length = prediction_length,
             diff_steps = diff_steps,
@@ -188,6 +248,9 @@ class TimeFusion(nn.Module):
                 #if self.device == torch.device("mps"):
                 tokens = tokens.to(self.device)
 
+                if self.scaling:
+                    tokens = self.scaler(tokens)
+
                 # Diffuse data
                 tokens, targets = self.diffuser.diffuse(tokens)
 
@@ -215,6 +278,9 @@ class TimeFusion(nn.Module):
                     for tokens in val_loader:
                         #if self.device == torch.device("mps"):
                         tokens = tokens.to(self.device)
+
+                        if self.scaling:
+                            tokens = self.scaler(tokens)
 
                         # Diffuse data
                         tokens, targets = self.diffuser.diffuse(tokens)
@@ -284,25 +350,29 @@ class TimeFusion(nn.Module):
         # Set the network into evaluation mode
         self.train(False)
         
-        # Get token for sample indices
-        token = data.get_sample_tensor(
-            sample_indices,
-            timestamp_encodings=timestamp_encodings
-        )
-
-        # Repeat token to give correct batch size
-        tokens = token.unsqueeze(0).repeat(batch_size,1,1,1)
-
-        #if self.device == torch.device("mps"):
-        tokens = tokens.to(self.device)
 
         # Sample
         samples = torch.empty(0, device = self.device)
         while samples.shape[0] < num_samples:
 
+            # Get token for sample indices
+            token = data.get_sample_tensor(
+                sample_indices,
+                timestamp_encodings=timestamp_encodings
+            )
+
+            # Repeat token to give correct batch size
+            tokens = token.unsqueeze(0).repeat(batch_size,1,1,1)
+
+            #if self.device == torch.device("mps"):
+            tokens = tokens.to(self.device)
+
             # Make sure we do not make too many predictions if num_samples % batch_size is not equal to 0
             if num_samples - samples.shape[0] < batch_size:
                 tokens = tokens[:num_samples - samples.shape[0]]
+
+            if self.scaling:
+                tokens = self.scaler(tokens)
 
             # Sample initial white noise
             tokens = self.diffuser.denoise(
@@ -315,7 +385,7 @@ class TimeFusion(nn.Module):
             for n in range(self.diff_steps,0,-1):
 
                 # Calculate predicted noise
-                epsilon = self.forward(tokens)
+                epsilon = self.forward(torch.clone(tokens))
 
                 # Calculate x_n
                 tokens = self.diffuser.denoise(
@@ -324,8 +394,12 @@ class TimeFusion(nn.Module):
                     n = n
                 )
 
+
+            if self.scaling:
+                tokens = self.scaler.unscale(tokens)
+
             # Add denoised tokens to samples
-            samples = torch.cat((samples, tokens[:,:,-self.prediction_length:,0]))
+            samples = torch.cat((samples, torch.clone(tokens[:,:,-self.prediction_length:,0])))
 
         return samples
 
