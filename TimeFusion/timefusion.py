@@ -1,23 +1,22 @@
 # Library imports
 import torch
 import math
-import time
 import copy
-import numpy as np
 import calendar
+import numpy as np
 
 
 # Module imports
 from torch import nn, Tensor, optim
+from torch.utils.data import DataLoader
 from torch.optim.lr_scheduler import _LRScheduler
+from pandas import DatetimeIndex
 from typing import List, Callable, Optional, Dict, Tuple
-from pandas import DataFrame
+
+# Relative imports
 from data import TimeFusionDataset
 from diffusion import Diffuser
-from pandas import DatetimeIndex
-from torch.utils.data import DataLoader
 
-### The following segment of code is from https://stackoverflow.com/questions/71998978/early-stopping-in-pytorch
 class EarlyStopper:
     def __init__(self, patience=1, min_delta=0, restore_weights=True):
         self.patience = patience
@@ -44,39 +43,57 @@ class EarlyStopper:
             return True, None
         
         return False, None
-###
+
 
 class MeanScaler(nn.Module):
     def __init__(
             self, 
             context_length: int,
-            min_scale: float,
-            device: torch.device
+            device: torch.device,
+            min_scale: float = 1e-3
         ):
 
         # Init nn.Module base class
         super().__init__()
 
+        # Set instance variables
         self.context_length = context_length
-        self.min_scale = min_scale
         self.device = device
+        self.min_scale = min_scale
         self.scales = None
 
     def forward(self, x: Tensor):
         """
         Args:
-            x: Tensor of shape (batch size, timeseries_dim, total length, datapoint_dim) or (timeseries_dim, total length, datapoint_dim))
+            x: Tensor of shape (batch size, timeseries_dim, total length, datapoint_dim)
+        Returns:
+            x: Input Tensor scaled by mean absolute values
         """
-        # Scale data
-        scales = torch.maximum(torch.mean(x[:,:,:self.context_length,0],dim=2),torch.full(x[:,:,0,0].shape,self.min_scale,device=self.device))
-        x[:,:,:,0] /= scales.view(x.shape[:2]+ tuple([1]))
+        # Calculate the mean absolute value of the context data of each time series
+        means = torch.mean(x[:,:,:self.context_length,0].abs(), dim=2)
 
+        # Replace means which are too small
+        scales = torch.maximum(means, torch.full(means.shape, self.min_scale, device=self.device))
+
+        # Scale the data
+        x[:,:,:,0] /= scales.unsqueeze(-1)
+
+        # Store the scales
         self.scales = scales
 
         return x
     
     def unscale(self, x: Tensor):
-        x[:,:,:,0] *= self.scales.view(x.shape[:2]+ tuple([1]))
+        """
+        Args:
+            x: Tensor of shape (batch size, timeseries_dim, total length, datapoint_dim)
+        Returns:
+            x: Input Tensor scaled by stored scales
+        """
+
+        # Scale the data
+        x[:,:,:,0] *= self.scales.unsqueeze(-1)
+
         return x
 
 
@@ -126,15 +143,19 @@ class TimeFusion(nn.Module):
 
 
         ### Initialize all components of the network ###
+        if scaling:
+            self.scaler = MeanScaler(
+                context_length = context_length,
+                device = device,
+                min_scale = 0.01
+            )
+
         self.diffuser = Diffuser(
             prediction_length = prediction_length,
             diff_steps = diff_steps,
             betas = betas,
             device = device
         )
-
-        if scaling:
-            self.scaler = MeanScaler(context_length,0.01,device=device)
 
         self.embedding = nn.Linear(
             in_features = timeseries_shape[0]*timeseries_shape[1], 
@@ -376,7 +397,7 @@ class TimeFusion(nn.Module):
 
             if self.scaling:
                 tokens = self.scaler.unscale(tokens)
-                
+
             # Add denoised tokens to samples
             samples = torch.cat((samples, torch.clone(tokens[:,:,-self.prediction_length:,0])))
 
