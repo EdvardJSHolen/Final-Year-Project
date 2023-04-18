@@ -33,10 +33,10 @@ def main():
     test_data.index = pd.to_datetime(test_data.index)
 
     # Standardize data
-    means = train_data.mean()
-    stds = train_data.std()
-    train_data = (train_data-means)/stds
-    test_data = (test_data-means)/stds
+    # means = train_data.mean()
+    # stds = train_data.std()
+    # train_data = (train_data-means)/stds
+    # test_data = (test_data-means)/stds
 
     # Randomly remove 30% of data to make irregular
     np.random.seed(0) # Set random seed to make result reproducible
@@ -129,6 +129,7 @@ def main():
         dim_feedforward=1024,
         diff_steps=100,
         device = device,
+        scaling = True
     )
 
     print("Number of trainable parameters:",sum(p.numel() for p in predictor.parameters()))
