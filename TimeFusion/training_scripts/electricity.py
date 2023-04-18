@@ -60,8 +60,8 @@ def main():
     if torch.cuda.is_available():
         device = torch.device("cuda:0")
     elif torch.backends.mps.is_available():
-        #device = torch.device("cpu")
-        device = torch.device("mps")
+        device = torch.device("cpu")
+        #device = torch.device("mps")
     else:
         device = torch.device("cpu")
 
@@ -72,16 +72,16 @@ def main():
     prediction_length = 24
 
     encodings = [
-        # lambda x: math.sin(2*math.pi*x.timestamp() / (3600*24)),
-        # lambda x: math.sin(2*math.pi*x.timestamp() / (3600*24*7)),
-        # lambda x: math.sin(2*math.pi*x.timestamp() / (3600*24*30)),
-        # lambda x: math.sin(2*math.pi*x.timestamp() / (3600*24*90)),
-        # lambda x: math.sin(2*math.pi*x.timestamp() / (3600*24*365)),
-        # lambda x: math.cos(2*math.pi*x.timestamp() / (3600*24)),
-        # lambda x: math.cos(2*math.pi*x.timestamp() / (3600*24*7)),
-        # lambda x: math.cos(2*math.pi*x.timestamp() / (3600*24*30)),
-        # lambda x: math.cos(2*math.pi*x.timestamp() / (3600*24*90)),
-        # lambda x: math.cos(2*math.pi*x.timestamp() / (3600*24*365)),
+        #lambda x: math.sin(2*math.pi*x.timestamp() / (3600*24)),
+        lambda x: math.sin(2*math.pi*x.timestamp() / (3600*24*7)),
+        lambda x: math.sin(2*math.pi*x.timestamp() / (3600*24*30)),
+        #lambda x: math.sin(2*math.pi*x.timestamp() / (3600*24*90)),
+        lambda x: math.sin(2*math.pi*x.timestamp() / (3600*24*365)),
+        #lambda x: math.cos(2*math.pi*x.timestamp() / (3600*24)),
+        lambda x: math.cos(2*math.pi*x.timestamp() / (3600*24*7)),
+        lambda x: math.cos(2*math.pi*x.timestamp() / (3600*24*30)),
+        #lambda x: math.cos(2*math.pi*x.timestamp() / (3600*24*90)),
+        lambda x: math.cos(2*math.pi*x.timestamp() / (3600*24*365)),
     ]
 
     # Create each dataset
@@ -104,8 +104,8 @@ def main():
         shuffle = True,
         num_workers = 4,
         batch_size = 128,
-        pin_memory=True,
-        pin_memory_device="cuda:0"
+        #pin_memory=True,
+        #pin_memory_device="cuda:0"
     )
 
     val_loader = DataLoader(
@@ -113,8 +113,8 @@ def main():
         shuffle = True,
         num_workers = 4,
         batch_size = 128,
-        pin_memory=True,
-        pin_memory_device="cuda:0"
+        #pin_memory=True,
+        #pin_memory_device="cuda:0"
     )
 
     print(f"DataLoaders created - Current runtime: {time.time() - _start_time}")
