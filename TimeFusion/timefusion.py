@@ -158,7 +158,7 @@ class TimeFusion(nn.Module):
         )
 
         self.embedding = nn.Linear(
-            in_features = timeseries_shape[0]*timeseries_shape[1], 
+            in_features = timeseries_shape[1], 
             out_features = d_model,
             device = device
         )
@@ -169,7 +169,19 @@ class TimeFusion(nn.Module):
            device = device
         )
         
-        self.transformer_encoder = nn.TransformerEncoder(
+        self.transformer_encoder1 = nn.TransformerEncoder(
+            nn.TransformerEncoderLayer(
+                d_model = d_model, 
+                nhead = nhead,
+                dim_feedforward = dim_feedforward,
+                dropout = 0,
+                batch_first = True,
+                device = device
+            ),
+            num_layers = num_encoder_layers
+        )
+
+        self.transformer_encoder2 = nn.TransformerEncoder(
             nn.TransformerEncoderLayer(
                 d_model = d_model, 
                 nhead = nhead,
@@ -182,7 +194,7 @@ class TimeFusion(nn.Module):
         )
         
         self.linear = nn.Linear(
-            in_features = d_model,
+            in_features = 2*d_model,
             out_features = timeseries_shape[0],
             device = device
         )
@@ -193,16 +205,21 @@ class TimeFusion(nn.Module):
             x: Tensor of shape (batch size, timeseries_dim, total length, datapoint_dim) or (timeseries_dim, total length, datapoint_dim))
         """
 
+        original_shape = x.shape
+
         # If data is unbatched, add a batch dimension
         if x.dim() == 3:
             x.unsqueeze(0)
 
         # Pass input through network
+        x = self.embedding(x)
+        x = torch.flatten(x, start_dim=0,end_dim=1)
+        x = self.positional_encoding(x)
+        x = x.reshape(original_shape[:3]+ tuple([-1]))
+        x[:,0] = self.transformer_encoder1(x[:,0])
+        x[:,1] = self.transformer_encoder2(x[:,1])
         x = torch.permute(x, (0, 2, 1, 3))
         x = torch.flatten(x, start_dim=2)
-        x = self.embedding(x)
-        x = self.positional_encoding(x)
-        x = self.transformer_encoder(x)
         x = self.linear(x[:,self.context_length:])
         x = torch.permute(x, (0, 2, 1))
 
