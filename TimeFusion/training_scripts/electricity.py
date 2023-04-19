@@ -124,9 +124,9 @@ def main():
         prediction_length = prediction_length,
         timeseries_shape = (len(train_dataset.time_series),train_dataset.time_series[0].shape[1]), 
         num_encoder_layers=3,
-        d_model=512,
-        nhead=32,
-        dim_feedforward=1024,
+        d_model=32,
+        nhead=4,
+        dim_feedforward=64,
         diff_steps=100,
         device = device,
         scaling = True
@@ -136,7 +136,7 @@ def main():
 
     print([p.numel() for p in predictor.parameters()])
 
-    optimizer = torch.optim.Adam(params=predictor.parameters(),lr=2e-4)
+    optimizer = torch.optim.Adam(params=predictor.parameters(),lr=5e-4)
     lr_scheduler = torch.optim.lr_scheduler.LinearLR(optimizer, start_factor=1, end_factor=0.01, total_iters=20)
 
     print(f"Starting training - Current runtime: {time.time() - _start_time}")

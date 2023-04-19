@@ -95,6 +95,55 @@ class MeanScaler(nn.Module):
         x[:,:,:,0] *= self.scales.unsqueeze(-1)
 
         return x
+    
+
+class TransformerSubstream(nn.Module):
+
+    def __init__(
+        self,
+        stream_length: int,
+        d_model: int, 
+        nhead: int,
+        dim_feedforward: int,
+        num_encoder_layers: int,
+        device: torch.device
+    ):
+        # Init nn.Module base class
+        super().__init__()
+        
+        self.transformer_encoder = nn.TransformerEncoder(
+            nn.TransformerEncoderLayer(
+                d_model = d_model, 
+                nhead = nhead,
+                dim_feedforward = dim_feedforward,
+                dropout = 0,
+                batch_first = True,
+                device = device
+            ),
+            num_layers = num_encoder_layers
+        )
+
+        self.linear1 = nn.Linear(
+            in_features = d_model,
+            out_features = 1,
+            device = device
+        )
+
+        self.linear2 = nn.Linear(
+            in_features = stream_length,
+            out_features = d_model,
+            device = device
+        )
+
+    def forward(self, x):
+
+        x = self.transformer_encoder(x)
+
+        y = self.linear1(x)
+
+        y = self.linear2(y.squeeze())
+
+        return x, y
 
 
 # Class accessible to end-user
@@ -168,20 +217,22 @@ class TimeFusion(nn.Module):
            dropout = 0,
            device = device
         )
-        
-        self.transformer_encoder1 = nn.TransformerEncoder(
-            nn.TransformerEncoderLayer(
-                d_model = d_model, 
-                nhead = nhead,
-                dim_feedforward = dim_feedforward,
-                dropout = 0,
-                batch_first = True,
-                device = device
-            ),
-            num_layers = num_encoder_layers
-        )
 
-        self.transformer_encoder2 = nn.TransformerEncoder(
+        substreams = []
+        for _ in range(timeseries_shape[0]):
+            substreams.append(
+                TransformerSubstream(
+                    stream_length = self.total_length,
+                    d_model = d_model,
+                    nhead = nhead,
+                    dim_feedforward = dim_feedforward,
+                    num_encoder_layers = num_encoder_layers,
+                    device = device
+                )
+            )
+        self.substreams = nn.ModuleList(substreams)
+
+        self.transformer_encoder = nn.TransformerEncoder(
             nn.TransformerEncoderLayer(
                 d_model = d_model, 
                 nhead = nhead,
@@ -190,12 +241,12 @@ class TimeFusion(nn.Module):
                 batch_first = True,
                 device = device
             ),
-            num_layers = num_encoder_layers
+            num_layers = 2
         )
         
         self.linear = nn.Linear(
             in_features = 2*d_model,
-            out_features = timeseries_shape[0],
+            out_features = 1,#timeseries_shape[0],
             device = device
         )
     
@@ -216,12 +267,22 @@ class TimeFusion(nn.Module):
         x = torch.flatten(x, start_dim=0,end_dim=1)
         x = self.positional_encoding(x)
         x = x.reshape(original_shape[:3]+ tuple([-1]))
-        x[:,0] = self.transformer_encoder1(x[:,0])
-        x[:,1] = self.transformer_encoder2(x[:,1])
-        x = torch.permute(x, (0, 2, 1, 3))
-        x = torch.flatten(x, start_dim=2)
-        x = self.linear(x[:,self.context_length:])
-        x = torch.permute(x, (0, 2, 1))
+
+        y = torch.empty(x.shape[:2] + tuple([self.embedding.out_features]),device=self.device)
+        for i, substream in enumerate(self.substreams):
+            x[:,i], y[:,i] = substream(x[:,i])
+
+        y = self.transformer_encoder(y)
+
+        x = torch.cat((x[:,:,self.context_length:],y.unsqueeze(2).repeat((1,1,self.prediction_length,1))),dim=-1)
+        #x = torch.cat((x,torch.zeros(x.shape,device=self.device)),dim=-1) 
+
+        #x = torch.permute(x, (0, 2, 1, 3))
+        #x = torch.flatten(x, start_dim=2)
+        x = self.linear(x[:,:,self.context_length:])
+        #x = torch.permute(x, (0, 2, 1))
+
+        x = x.squeeze()
 
         return x
 
