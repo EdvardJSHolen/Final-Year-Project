@@ -157,35 +157,9 @@ class TimeFusion(nn.Module):
             device = device
         )
 
-        self.embedding = nn.Linear(
-            in_features = timeseries_shape[0]*timeseries_shape[1], 
-            out_features = d_model,
-            device = device
-        )
+        self.lstm = nn.LSTM(input_size=4, hidden_size=60, num_layers=2, batch_first=True)
+        self.linear1 = nn.Linear(60, 2)
 
-        self.positional_encoding = PositionalEncoding(
-           d_model = d_model,
-           dropout = 0,
-           device = device
-        )
-        
-        self.transformer_encoder = nn.TransformerEncoder(
-            nn.TransformerEncoderLayer(
-                d_model = d_model, 
-                nhead = nhead,
-                dim_feedforward = dim_feedforward,
-                dropout = 0,
-                batch_first = True,
-                device = device
-            ),
-            num_layers = num_encoder_layers
-        )
-        
-        self.linear = nn.Linear(
-            in_features = d_model,
-            out_features = timeseries_shape[0],
-            device = device
-        )
     
     def forward(self, x: Tensor):
         """
@@ -200,10 +174,11 @@ class TimeFusion(nn.Module):
         # Pass input through network
         x = torch.permute(x, (0, 2, 1, 3))
         x = torch.flatten(x, start_dim=2)
-        x = self.embedding(x)
-        x = self.positional_encoding(x)
-        x = self.transformer_encoder(x)
-        x = self.linear(x[:,self.context_length:])
+
+        #x = torch.permute(x, (0, 2, 1))
+        x, _ = self.lstm(x)
+        x = self.linear1(x[:,self.context_length:])
+
         x = torch.permute(x, (0, 2, 1))
 
         return x
