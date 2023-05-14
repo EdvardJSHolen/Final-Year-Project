@@ -95,6 +95,88 @@ class MeanScaler(nn.Module):
         x[:,:,:,0] *= self.scales.unsqueeze(-1)
 
         return x
+    
+class TemporalTransformer(nn.Module):
+
+    def __init__(
+        self,
+        d_model: int,
+        nhead: int,
+        dim_feedforward: int,
+        device: torch.device
+    ):
+        
+        super().__init__()
+
+        self.positional_encoding = PositionalEncoding(
+           d_model = d_model,
+           dropout = 0,
+           device = device
+        )
+
+        self.time_attention = nn.TransformerEncoder(
+            nn.TransformerEncoderLayer(
+                d_model = d_model, 
+                nhead = nhead,
+                dim_feedforward = dim_feedforward,
+                dropout = 0,
+                batch_first = True,
+                device = device
+            ),
+            num_layers = 1
+        )
+
+        self.feature_attention = nn.TransformerEncoder(
+            nn.TransformerEncoderLayer(
+                d_model = d_model, 
+                nhead = nhead,
+                dim_feedforward = dim_feedforward,
+                dropout = 0,
+                batch_first = True,
+                device = device
+            ),
+            num_layers = 1
+        )
+
+    def forward(
+        self, 
+        x: Tensor, 
+        mask: Tensor
+    ):
+        original_shape = x.shape
+        original_mask = torch.clone(mask)
+        x = x.flatten(start_dim=0,end_dim=1)
+        mask = mask.flatten(start_dim=0,end_dim=1)
+
+        x = self.positional_encoding(x)
+
+        x = self.time_attention(
+            src = x,
+            src_key_padding_mask = mask
+        )
+
+        x = x.reshape(original_shape)
+        mask = mask.reshape(original_shape[:-1])
+
+        x = x.permute((0,2,1,3))
+        mask = mask.permute((0,2,1))
+
+        x = x.flatten(start_dim=0,end_dim=1)
+        mask = mask.flatten(start_dim=0,end_dim=1)
+
+        mask = original_mask.permute((0,2,1))
+        mask = mask.flatten(start_dim=0,end_dim=1)
+        #print(mask)
+        #x = torch.nan_to_num(x)
+        x = self.feature_attention(
+            src = x,
+            #src_key_padding_mask = mask
+        )
+
+        x = x.reshape((original_shape[0],original_shape[2],original_shape[1],-1))
+        x = x.permute((0,2,1,3))
+
+        return x
 
 
 # Class accessible to end-user
@@ -158,36 +240,32 @@ class TimeFusion(nn.Module):
         )
 
         self.embedding = nn.Linear(
-            in_features = timeseries_shape[0]*timeseries_shape[1], 
+            in_features = timeseries_shape[1], 
             out_features = d_model,
             device = device
         )
-
-        self.positional_encoding = PositionalEncoding(
-           d_model = d_model,
-           dropout = 0,
-           device = device
-        )
         
-        self.transformer_encoder = nn.TransformerEncoder(
-            nn.TransformerEncoderLayer(
-                d_model = d_model, 
-                nhead = nhead,
-                dim_feedforward = dim_feedforward,
-                dropout = 0,
-                batch_first = True,
-                device = device
-            ),
-            num_layers = num_encoder_layers
+        self.transformer_encoder = TemporalTransformer(
+            d_model=d_model,
+            nhead=nhead,
+            dim_feedforward=dim_feedforward,
+            device=device
+        )
+
+        self.transformer_encoder2 = TemporalTransformer(
+            d_model=d_model,
+            nhead=nhead,
+            dim_feedforward=dim_feedforward,
+            device=device
         )
         
         self.linear = nn.Linear(
             in_features = d_model,
-            out_features = timeseries_shape[0],
+            out_features = 1,
             device = device
         )
     
-    def forward(self, x: Tensor):
+    def forward(self, x: Tensor, mask):
         """
         Args:
             x: Tensor of shape (batch size, timeseries_dim, total length, datapoint_dim) or (timeseries_dim, total length, datapoint_dim))
@@ -198,13 +276,15 @@ class TimeFusion(nn.Module):
             x.unsqueeze(0)
 
         # Pass input through network
-        x = torch.permute(x, (0, 2, 1, 3))
-        x = torch.flatten(x, start_dim=2)
+        #x = torch.permute(x, (0, 2, 1, 3))
+        #x = torch.flatten(x, start_dim=2)
         x = self.embedding(x)
-        x = self.positional_encoding(x)
-        x = self.transformer_encoder(x)
-        x = self.linear(x[:,self.context_length:])
-        x = torch.permute(x, (0, 2, 1))
+        x = self.transformer_encoder(x,mask)
+        x = self.transformer_encoder2(x,mask)
+        x = torch.nan_to_num(x)
+        x = self.linear(x[:,:,self.context_length:])
+        x = x.squeeze()
+        #x = torch.permute(x, (0, 2, 1))
 
         return x
 
@@ -230,6 +310,7 @@ class TimeFusion(nn.Module):
             lr_scheduler: Learning rate scheduler which modifies learning rate after each epoch.
         """
 
+
         # Set the network into training mode
         self.train(True)
 
@@ -239,14 +320,17 @@ class TimeFusion(nn.Module):
 
         # Set default validation metrics
         val_metrics = val_metrics | {"val_loss": loss_function}
-            
+
 
         for epoch in range(1, epochs + 1):
+            
 
             running_loss = 0
-            for i, tokens in enumerate(train_loader, start = 1):
+            for i, values in enumerate(train_loader, start = 1):
+                tokens, mask = values
                 #if self.device == torch.device("mps"):
                 tokens = tokens.to(self.device)
+                mask = mask.to(self.device)
 
                 if self.scaling:
                     tokens = self.scaler(tokens)
@@ -258,13 +342,17 @@ class TimeFusion(nn.Module):
                 optimizer.zero_grad()
 
                 # Forward, loss calculation, backward, optimizer step
-                predictions = self.forward(tokens)
+                tmp_mask = torch.cat((mask[:,:,:self.context_length],torch.full(mask[:,:,self.context_length:].shape,False)),dim=2)
+                predictions = self.forward(tokens, tmp_mask)
+                predictions[mask[:,:,self.context_length:]] = 0
+                targets[mask[:,:,self.context_length:]] = 0
                 loss = loss_function(predictions,targets)
                 loss.backward()
                 optimizer.step()
 
+                #print(torch.numel(predictions),torch.numel(predictions[mask[:,:,self.context_length:] == False]))
                 # Print training statistics
-                running_loss += loss.item()
+                running_loss += (torch.numel(predictions)/torch.numel(predictions[mask[:,:,self.context_length:]==False]))*loss.item()
                 average_loss = running_loss / i
                 stat_string = "|" + "="*(30*i // len(train_loader)) + " "*(30 - (30*i // len(train_loader))) + f"|  Batch: {i} / {len(train_loader)}, Epoch: {epoch} / {epochs}, Average Loss: {average_loss:.4f}"
                 print("\u007F"*512,stat_string,end="\r")
@@ -275,7 +363,7 @@ class TimeFusion(nn.Module):
             if val_loader is not None:
                 with torch.no_grad():
                     running_loss = {key:0 for key in val_metrics.keys()}
-                    for tokens in val_loader:
+                    for tokens, mask in val_loader:
                         #if self.device == torch.device("mps"):
                         tokens = tokens.to(self.device)
 
@@ -286,9 +374,12 @@ class TimeFusion(nn.Module):
                         tokens, targets = self.diffuser.diffuse(tokens)
 
                         # Calculate prediction metrics
-                        predictions = self.forward(tokens)
+                        tmp_mask = torch.cat((mask[:,:,:self.context_length],torch.full(mask[:,:,self.context_length:].shape,False)),dim=2)
+                        predictions = self.forward(tokens,tmp_mask)
+                        predictions[mask[:,:,self.context_length:]] = 0
+                        targets[mask[:,:,self.context_length:]] = 0
                         for key, metric_func in val_metrics.items():
-                            running_loss[key] += metric_func(predictions,targets).item() 
+                            running_loss[key] += (torch.numel(predictions)/torch.numel(predictions[mask[:,:,self.context_length:]==False]))*metric_func(predictions,targets).item() 
                     
                     for metric, value in running_loss.items():
                         stat_string += f", {metric}: {value / len(val_loader):.4f}"
@@ -320,7 +411,8 @@ class TimeFusion(nn.Module):
     def sample(
         self,
         data: TimeFusionDataset,
-        sample_indices: List[DatetimeIndex],
+        sample_index,
+        #sample_indices: List[DatetimeIndex],
         num_samples: int = 1,
         batch_size: int = 64,
         timestamp_encodings: List[Callable] = [
@@ -356,13 +448,11 @@ class TimeFusion(nn.Module):
         while samples.shape[0] < num_samples:
 
             # Get token for sample indices
-            token = data.get_sample_tensor(
-                sample_indices,
-                timestamp_encodings=timestamp_encodings
-            )
+            token, mask = data[sample_index]
 
             # Repeat token to give correct batch size
             tokens = token.unsqueeze(0).repeat(batch_size,1,1,1)
+            mask  = mask.unsqueeze(0).repeat(batch_size,1,1)
 
             #if self.device == torch.device("mps"):
             tokens = tokens.to(self.device)
@@ -370,6 +460,7 @@ class TimeFusion(nn.Module):
             # Make sure we do not make too many predictions if num_samples % batch_size is not equal to 0
             if num_samples - samples.shape[0] < batch_size:
                 tokens = tokens[:num_samples - samples.shape[0]]
+                mask = mask[:num_samples - samples.shape[0]]
 
             if self.scaling:
                 tokens = self.scaler(tokens)
@@ -385,7 +476,9 @@ class TimeFusion(nn.Module):
             for n in range(self.diff_steps,0,-1):
 
                 # Calculate predicted noise
-                epsilon = self.forward(torch.clone(tokens))
+                tmp_mask = torch.cat((mask[:,:,:self.context_length],torch.full(mask[:,:,self.context_length:].shape,False)),dim=2)
+                #print(tmp_mask.shape,tokens.shape)
+                epsilon = self.forward(torch.clone(tokens),tmp_mask)
 
                 # Calculate x_n
                 tokens = self.diffuser.denoise(
