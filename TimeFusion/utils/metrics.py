@@ -1,10 +1,10 @@
 
-import math
 import numpy as np
 import scipy.integrate as integrate
+
+from itertools import combinations, product
 from scipy.stats import percentileofscore
 from typing import Union, Generator
-from itertools import combinations, product
 
 def windowed_product(stop: int, window: int) -> Generator:
     for x1 in range(stop):
