@@ -4,6 +4,8 @@ import torch
 
 from torch import nn, Tensor
 
+from typing import List, Any, Dict
+
 
 class EarlyStopper:
     def __init__(self, patience: int = 1, min_delta: float = 0.0):
@@ -34,7 +36,8 @@ class MeanScaler(nn.Module):
     def __init__(
             self, 
             device: torch.device,
-            min_scale: float = 1e-3
+            min_scale: float = 1e-3,
+            scaler_kwargs: Dict[str,Any] = None
         ):
 
         super().__init__()
@@ -42,21 +45,39 @@ class MeanScaler(nn.Module):
         self.device = device
         self.min_scale = min_scale
         self.scales = None
+        self.scaler_kwargs = scaler_kwargs
 
-    def forward(self, x: Tensor):
+    def forward(self, x: Tensor, update_scales: bool = True):
         """
         Args:
             x: Tensor of shape (batch size, time-series dim, time-series length)
+            scaled_rows: List of rows to scale, if None all rows are scaled
         Returns:
             x: Input Tensor scaled by mean absolute values
         """
-        # Calculate mean absolute value of each time series
-        means = torch.mean(x.abs(), dim=2)
 
-        # Replace means which are too small
-        self.scales = torch.maximum(means, torch.full(means.shape, self.min_scale, device = self.device))
-        # Scale data
-        x /= self.scales.unsqueeze(-1)
+        if update_scales:
+            # Calculate mean absolute value of each time series
+            means = torch.mean(x.abs(), dim=2)
+
+            # Replace means which are too small
+            self.scales = torch.maximum(means, torch.full(means.shape, self.min_scale, device = self.device))
+
+            # Mask scales for rows not to be scaled with 1
+            if scaled_rows := self.scaler_kwargs.get("scaled_rows", False):
+                mask = torch.full(self.scales.shape,True)
+                mask[:,scaled_rows] = False
+                self.scales[mask] = 1
+
+            # Scale data
+            x /= self.scales.unsqueeze(-1)
+
+        elif x.shape[1] == self.scales.shape[0]:
+            x /= self.scales.unsqueeze(-1)
+        elif prediction_rows := self.scaler_kwargs.get("prediction_rows", False):
+            x /= self.scales[:,prediction_rows].unsqueeze(-1)
+        else:
+            x /= self.scales[:,:x.shape[1]].unsqueeze(-1)
 
         return x
     
@@ -69,6 +90,11 @@ class MeanScaler(nn.Module):
         """
 
         # Scale data
-        x *= self.scales
+        if x.shape[1] == self.scales.shape[0]:
+            x *= self.scales.unsqueeze(-1)
+        elif prediction_rows := self.scaler_kwargs.get("prediction_rows", False):
+            x *= self.scales[:,prediction_rows].unsqueeze(-1)
+        else:
+            x *= self.scales[:,:x.shape[1]].unsqueeze(-1)
 
         return x

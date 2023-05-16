@@ -44,19 +44,18 @@ class Diffuser():
     @torch.no_grad()
     def denoise(self, x: Tensor, epsilon: Tensor, n: int) -> Tensor:
             
-        assert 0 <= n <= self.diff_steps, "Requested diffusion step exceeds the defined diffusion step range"
+        assert 1 <= n <= self.diff_steps, "Requested diffusion step exceeds the defined diffusion step range"
 
-        # Set diffusion index
-    
-        if n == self.diff_steps:
-            # Sample initial white noise
-            x = torch.empty(size = x.shape, device = self.device).normal_()
-            return x
-        elif n > 1:
-            z = torch.empty(size = x.shape, device = self.device).normal_()
-        else:
+        if n == 1:
             z = torch.zeros(size = x.shape, device = self.device)
+        else:
+            z = torch.empty(size = x.shape, device = self.device).normal_()
 
         x = (1/math.sqrt(self.alphas[n-1]))*(x - (self.betas[n-1]/math.sqrt(1-self.bar_alphas[n-1]))*epsilon) + math.sqrt(self.betas[n-1])*z
 
+        return x
+    
+    @torch.no_grad()
+    def initial_noise(self, shape: Tensor.size) -> Tensor:
+        x = torch.empty(size = shape, device = self.device).normal_()
         return x

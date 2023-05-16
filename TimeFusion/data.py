@@ -12,7 +12,8 @@ class TimeFusionDataset(Dataset):
     def __init__(self,
         data: pd.DataFrame, 
         context_length: int,
-        ts_columns: List[int] = None
+        end_padding: int = 0,
+        ts_columns: List[int] = None,
     ):
         # Make a copy of the input dataframe
         self.data = data.copy()
@@ -21,6 +22,7 @@ class TimeFusionDataset(Dataset):
         
         # Save instance variables
         self.context_length = context_length
+        self.end_padding = end_padding
         self.ts_columns = ts_columns
         if self.ts_columns is None:
             self.ts_columns = list(range(self.data.shape[1]))
@@ -48,8 +50,12 @@ class TimeFusionDataset(Dataset):
         # Update data tensor
         self.tensor_data = torch.tensor(self.data.to_numpy(),dtype=torch.float32)
 
+    def get_sample_tensor(self, idx: int) -> Tensor:
+        context = self.tensor_data[idx : idx + self.context_length].T
+        return context
+
     def __len__(self) -> int:
-        return max(0, self.tensor_data.shape[0] - self.context_length - 1)
+        return max(0, self.tensor_data.shape[0] - self.context_length - 1 - self.end_padding)
 
     def __getitem__(self, idx: int) -> Tensor:
         context = self.tensor_data[idx : idx + self.context_length].T

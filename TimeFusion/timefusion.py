@@ -1,13 +1,13 @@
 # Library imports
 import torch
 import math
-import calendar
+import time
+import os
 
 # Module imports
 from torch import nn, Tensor, optim
 from torch.utils.data import DataLoader
 from torch.optim.lr_scheduler import _LRScheduler
-from pandas import DatetimeIndex
 from typing import List, Callable, Optional, Dict, Tuple
 
 # Relative imports
@@ -29,9 +29,9 @@ class DiffusionEmbedding(nn.Module):
         self.register_buffer('pe', pe)
 
         # FC network
-        self.projection1 = nn.Linear(dim, proj_dim)
+        self.projection1 = nn.Linear(dim, proj_dim,device=device)
         self.tanh1 = nn.Tanh()
-        self.projection2 = nn.Linear(proj_dim, proj_dim)
+        self.projection2 = nn.Linear(proj_dim, proj_dim,device=device)
 
     def forward(self, x: Tensor) -> Tensor:
         """
@@ -45,27 +45,27 @@ class DiffusionEmbedding(nn.Module):
         return x
     
 
-class ResidualBlock(nn.Module):
+# class ResidualBlock(nn.Module):
 
-    def __init__(self, x_dim: int, hidden_dim: int, noise_dim: int, device: torch.device):
-        super().__init__()
+#     def __init__(self, x_dim: int, hidden_dim: int, noise_dim: int, device: torch.device):
+#         super().__init__()
 
-        total_dim = x_dim + hidden_dim + noise_dim
+#         total_dim = x_dim + hidden_dim + noise_dim
 
-        # FC network
-        self.projection1 = nn.Linear(total_dim, total_dim)
-        self.projection2 = nn.Linear(total_dim, x_dim)
-        self.relu = nn.ReLU()
+#         # FC network
+#         self.projection1 = nn.Linear(total_dim, total_dim)
+#         self.projection2 = nn.Linear(total_dim, x_dim)
+#         self.relu = nn.ReLU()
 
-    def forward(self, x: Tensor, h: Tensor, n: Tensor) -> Tensor:
+#     def forward(self, x: Tensor, h: Tensor, n: Tensor) -> Tensor:
 
-        out = torch.concat([x,h,n],dim = 1)
-        out = self.projection1(out)
-        out = self.relu(out)
-        out = self.projection2(out)
-        out = self.relu(out + x)
+#         out = torch.concat([x,h,n],dim = 1)
+#         out = self.projection1(out)
+#         out = self.relu(out)
+#         out = self.projection2(out)
+#         out = self.relu(out + x)
 
-        return out
+#         return out
 
 
 # Class accessible to end-user
@@ -73,7 +73,9 @@ class TimeFusion(nn.Module):
 
     def __init__(
             self,
+            prediction_length: int,
             input_size: int,
+            output_size: int,
             hidden_size: int = 40,
             recurrent_layers: int = 2,
             dropout: float = 0.1,
@@ -82,12 +84,14 @@ class TimeFusion(nn.Module):
             diff_steps: int = 100,
             betas: List[float] = None,
             device: torch.device = torch.device("cpu"),
+            **kwargs
         ) -> None:
         
         # Init nn.Module base class
         super().__init__()
 
         ### Set instance variables ###
+        self.prediction_length = prediction_length
         self.input_size = input_size
         self.hidden_size = hidden_size
         self.recurrent_layers = recurrent_layers
@@ -99,7 +103,8 @@ class TimeFusion(nn.Module):
         if scaling:
             self.scaler = MeanScaler(
                 device = device,
-                min_scale = 0.01
+                min_scale = 0.01,
+                scaler_kwargs = kwargs.get("scaler_kwargs")
             )
 
         self.diff_embedding = DiffusionEmbedding(
@@ -119,25 +124,30 @@ class TimeFusion(nn.Module):
             hidden_size = hidden_size,
             num_layers = recurrent_layers,
             dropout = dropout,
-            batch_first = True
-        )
-
-        self.residual = nn.ModuleList(
-            [
-                ResidualBlock(
-                    x_dim = input_size,
-                    hidden_dim = hidden_size,
-                    noise_dim = 32,
-                    device = device
-                )
-                for _ in range(residual_layers)
-            ]
+            batch_first = True,
+            device=device
         )
         
-        self.linear = nn.Linear(
-            in_features = input_size,
-            out_features = input_size
+        self.linear1 = nn.Linear(
+            in_features = output_size + hidden_size + 32,
+            out_features = output_size + hidden_size + 32,
+            device =device
         )
+
+        self.linear2 = nn.Linear(
+            in_features = output_size + hidden_size + 32,
+            out_features = output_size + hidden_size + 32,
+            device=device
+        )
+
+        self.linear3 = nn.Linear(
+            in_features = output_size + hidden_size + 32,
+            out_features = output_size,
+            device=device
+        )
+
+        self.relu = nn.ReLU()
+
     
     def forward(self, context: Tensor, x: Tensor, n: Tensor):
         """
@@ -148,14 +158,33 @@ class TimeFusion(nn.Module):
         """
         context = context.permute((0,2,1))
         h, _  = self.rnn(context)
+
         n = self.diff_embedding(n)
 
-        for layer in self.residual:
-            x = layer(x,h[:,-1],n)
-
-        x = self.linear(x)
-
+        x = self.linear1(torch.concat([x,h[:,-1],n],dim=1))
+        x = self.relu(x)
+        x = self.linear2(x)
+        x = self.relu(x)
+        x = self.linear3(x)
+        
         return x
+    
+    def partial_forward(self, x: Tensor, n: Tensor, context: Tensor = None, h: Tensor = None) -> Tuple[Tensor, Tensor]:
+
+        assert (not context is None) or (not h is None), "Either context or hidden state of LSTM must be provided"
+
+        if h is None:
+            context = context.permute((0,2,1))
+            h, _  = self.rnn(context)
+        
+        n = self.diff_embedding(n)
+        x = self.linear1(torch.concat([x,h[:,-1],n],dim=1))
+        x = self.relu(x)
+        x = self.linear2(x)
+        x = self.relu(x)
+        x = self.linear3(x)
+
+        return x, h
 
     # Function to train TimeFusion network
     def train_network(self,
@@ -167,6 +196,8 @@ class TimeFusion(nn.Module):
             optimizer: optim.Optimizer = None,
             lr_scheduler: _LRScheduler = None,
             early_stopper: EarlyStopper = None,
+            save_weights: bool = False,
+            weight_folder: str = ""
         ) -> None:
         """
         Args:
@@ -195,14 +226,12 @@ class TimeFusion(nn.Module):
             running_loss = 0
             for i, data in enumerate(train_loader, start = 1):
                 context, target = data
-                #if self.device == torch.device("mps"):
                 context = context.to(self.device)
                 target = target.to(self.device)
 
                 if self.scaling:
                     context = self.scaler(context)
-
-                target /= self.scaler.scales
+                    target = torch.squeeze(self.scaler(target.unsqueeze(-1), update_scales = False))
 
                 # Diffuse data
                 x, target, n = self.diffuser.diffuse(target)
@@ -212,7 +241,7 @@ class TimeFusion(nn.Module):
 
                 # Forward, loss calculation, backward, optimizer step
                 predictions = self.forward(context, x, n)
-                #predictions = self.forward(context, None, None)
+
                 loss = loss_function(predictions,target)
                 loss.backward()
                 optimizer.step()
@@ -226,134 +255,131 @@ class TimeFusion(nn.Module):
             if lr_scheduler:
                 lr_scheduler.step()
 
-            # if val_loader is not None:
-            #     with torch.no_grad():
-            #         running_loss = {key:0 for key in val_metrics.keys()}
-            #         for tokens in val_loader:
-            #             #if self.device == torch.device("mps"):
-            #             tokens = tokens.to(self.device)
+            if val_loader is not None:
+                with torch.no_grad():
+                    running_loss = {key:0 for key in val_metrics.keys()}
+                    for data in val_loader:
+                        context, target = data
+                        context = context.to(self.device)
+                        target = target.to(self.device)
 
-            #             if self.scaling:
-            #                 tokens = self.scaler(tokens)
+                        
+                        if self.scaling:
+                            context = self.scaler(context)
+                            target = torch.squeeze(self.scaler(target.unsqueeze(-1), update_scales = False))
 
-            #             # Diffuse data
-            #             tokens, targets = self.diffuser.diffuse(tokens)
+                        # Diffuse data
+                        x, target, n = self.diffuser.diffuse(target)
 
-            #             # Calculate prediction metrics
-            #             predictions = self.forward(tokens)
-            #             for key, metric_func in val_metrics.items():
-            #                 running_loss[key] += metric_func(predictions,targets).item() 
+                        # Calculate prediction metrics
+                        predictions = self.forward(context, x, n)
+                        for key, metric_func in val_metrics.items():
+                            running_loss[key] += metric_func(predictions,target).item() 
                     
-            #         for metric, value in running_loss.items():
-            #             stat_string += f", {metric}: {value / len(val_loader):.4f}"
+                    for metric, value in running_loss.items():
+                        stat_string += f", {metric}: {value / len(val_loader):.4f}"
 
-            #         print("\u007F"*512,stat_string)
+                    print("\u007F"*512,stat_string)
 
-            #         if not early_stopper is None:
-            #             stop, weights = early_stopper.early_stop(running_loss["val_loss"] / len(val_loader),self)
-            #             if stop:
-            #                 if not weights is None:
-            #                     self.load_state_dict(weights)
-            #                 break
-            # else:
-            #     if not early_stopper is None:
-            #             stop, weights = early_stopper.early_stop(average_loss,self)
-            #             if stop:
-            #                 if not weights is None:
-            #                     self.load_state_dict(weights)
-            #                 break
+                    if not early_stopper is None:
+                        stop = early_stopper.early_stop(running_loss["val_loss"] / len(val_loader),self)
+                        if stop:
+                            self.load_state_dict(early_stopper.best_weights)
+                            break
+
+            else:
+                if not early_stopper is None:
+                        stop = early_stopper.early_stop(average_loss,self)
+                        if stop:
+                            self.load_state_dict(early_stopper.best_weights)
+                            break
 
                 # New line for printing statistics
                 print()
 
-        # if (not early_stopper is None) and early_stopper.restore_weights:
-        #     self.load_state_dict(early_stopper.best_weights)
+        if not early_stopper is None:
+            self.load_state_dict(early_stopper.best_weights)
 
-
-    # @torch.no_grad()
-    # def sample(
-    #     self,
-    #     data: TimeFusionDataset,
-    #     sample_indices: List[DatetimeIndex],
-    #     num_samples: int = 1,
-    #     batch_size: int = 64,
-    #     timestamp_encodings: List[Callable] = [
-    #         lambda x: math.sin(2*math.pi*x.hour / 24),
-    #         lambda x: math.sin(2*math.pi*x.weekday() / 7),
-    #         lambda x: math.sin(2*math.pi*x.day / calendar.monthrange(x.year, x.month)[1]),
-    #         lambda x: math.sin(2*math.pi*x.month / 12),
-    #         lambda x: math.cos(2*math.pi*x.hour / 24),
-    #         lambda x: math.cos(2*math.pi*x.weekday() / 7),
-    #         lambda x: math.cos(2*math.pi*x.day / calendar.monthrange(x.year, x.month)[1]),
-    #         lambda x: math.cos(2*math.pi*x.month / 12),
-    #     ],
-    # ):
-        
-    #     """
-    #     Args:
-    #         data: Historical data which is fed as context to the network.
-    #         timestamps: Indexes at which to predict future values, length should be prediction length.
-    #         num_samples: Number of samples to sample from the network.
-    #         batch_size: The number of samples to process at the same time.
-
-    #     Note:
-    #         1. For optimal performance, num_samples should be divisible by batch size.
-    #         2. The timestamps must be drawn from the same distribution as those from the training data for best performance
-    #     """
-
-    #     # Set the network into evaluation mode
-    #     self.train(False)
+        if save_weights:
+            if (weight_folder != "") and (not os.path.exists(weight_folder)):
+                os.makedirs(weight_folder)
+            weight_path = weight_folder + "/" + time.strftime("%Y-%m-%d-%H-%M-%S", time.gmtime())
+            torch.save(self.state_dict(), weight_path)
         
 
-    #     # Sample
-    #     samples = torch.empty(0, device = self.device)
-    #     while samples.shape[0] < num_samples:
 
-    #         # Get token for sample indices
-    #         token = data.get_sample_tensor(
-    #             sample_indices,
-    #             timestamp_encodings=timestamp_encodings
-    #         )
+    @torch.no_grad()
+    def sample(
+        self,
+        data: TimeFusionDataset,
+        idx: int,
+        num_samples: int = 1,
+        batch_size: int = 64,
+    ):
+        
+        """
+        Args:
+            data:
+            idx: 
+            num_samples: Number of samples to sample from the network.
+            batch_size: The number of samples to process at the same time.
 
-    #         # Repeat token to give correct batch size
-    #         tokens = token.unsqueeze(0).repeat(batch_size,1,1,1)
+        Note:
+            1. For optimal performance, num_samples should be divisible by batch size.
+            2. The timestamps must be drawn from the same distribution as those from the training data for best performance
+        """
 
-    #         #if self.device == torch.device("mps"):
-    #         tokens = tokens.to(self.device)
+        # Set the network into evaluation mode
+        self.train(False)
+        
+        samples = torch.empty((num_samples,len(data.ts_columns),self.prediction_length), dtype=torch.float32, device=self.device)
+        # Sample for the same length as prediction length
+        for pred_idx in range(self.prediction_length):
+            
+            # Split computation into batches
+            for batch_idx in range(0, num_samples, batch_size):
 
-    #         # Make sure we do not make too many predictions if num_samples % batch_size is not equal to 0
-    #         if num_samples - samples.shape[0] < batch_size:
-    #             tokens = tokens[:num_samples - samples.shape[0]]
+                # Get context Tensor at index
+                context = data.get_sample_tensor(idx + pred_idx)
 
-    #         if self.scaling:
-    #             tokens = self.scaler(tokens)
+                # Repeat token to give correct batch size
+                context = context.unsqueeze(0).repeat(min(num_samples - batch_idx,batch_size),1,1)
 
-    #         # Sample initial white noise
-    #         tokens = self.diffuser.denoise(
-    #             tokens = tokens,
-    #             epsilon = None,
-    #             n = self.diff_steps
-    #         )
+                # Replace existing data into Tensor
+                if pred_idx > 0:
+                    context[:,data.ts_columns,-pred_idx:] = samples[batch_idx:batch_idx+batch_size,:,:pred_idx]
 
-    #         # Compute each diffusion step
-    #         for n in range(self.diff_steps,0,-1):
+                # Scale data
+                if self.scaling:
+                    context = self.scaler(context)
 
-    #             # Calculate predicted noise
-    #             epsilon = self.forward(torch.clone(tokens))
+                # Sample initial white noise
+                x = self.diffuser.initial_noise(
+                    shape = tuple([min(num_samples - batch_idx,batch_size), len(data.ts_columns)])
+                )
 
-    #             # Calculate x_n
-    #             tokens = self.diffuser.denoise(
-    #                 tokens  = tokens,
-    #                 epsilon = epsilon,
-    #                 n = n
-    #             )
+                # Denoising loop
+                h = None
+                for n in range(self.diff_steps,0,-1):
+
+                    # Calculate predicted noise
+                    epsilon, h = self.partial_forward(x = torch.clone(x), n = torch.full([min(num_samples - batch_idx,batch_size)],n), context = context, h = h)
+
+                    # Calculate x_n
+                    x = self.diffuser.denoise(
+                        x = x,
+                        epsilon = epsilon,
+                        n = n
+                    )
+
+                if self.scaling:
+                    x = torch.squeeze(self.scaler.unscale(x.unsqueeze(-1)))
+
+                # Store denoised samples
+                samples[batch_idx:batch_idx+batch_size,:,pred_idx] = x
+
+        return samples
 
 
-    #         if self.scaling:
-    #             tokens = self.scaler.unscale(tokens)
-
-    #         # Add denoised tokens to samples
-    #         samples = torch.cat((samples, torch.clone(tokens[:,:,-self.prediction_length:,0])))
-
-    #     return samples
-
+# TODO:
+# 2. restore weights option
