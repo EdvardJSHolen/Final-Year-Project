@@ -315,6 +315,7 @@ class TimeFusion(nn.Module):
         idx: int,
         num_samples: int = 1,
         batch_size: int = 64,
+        historical_data: Tensor = None
     ):
         
         """
@@ -347,7 +348,7 @@ class TimeFusion(nn.Module):
 
                 # Replace existing data into Tensor
                 if pred_idx > 0:
-                    context[:,data.ts_columns,-pred_idx:] = samples[batch_idx:batch_idx+batch_size,:,:pred_idx]
+                    context[:,data.ts_columns,-pred_idx:] = samples[batch_idx:batch_idx+batch_size,:,max(0,pred_idx - context.shape[2]):pred_idx]
 
                 # Scale data
                 if self.scaling:
@@ -369,7 +370,8 @@ class TimeFusion(nn.Module):
                     x = self.diffuser.denoise(
                         x = x,
                         epsilon = epsilon,
-                        n = n
+                        n = n,
+                        historical_data=historical_data[pred_idx]
                     )
 
                 if self.scaling:

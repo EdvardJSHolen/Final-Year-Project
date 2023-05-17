@@ -42,7 +42,7 @@ class Diffuser():
         return x, targets, n
 
     @torch.no_grad()
-    def denoise(self, x: Tensor, epsilon: Tensor, n: int) -> Tensor:
+    def denoise(self, x: Tensor, epsilon: Tensor, n: int, historical_data: Tensor = None) -> Tensor:
             
         assert 1 <= n <= self.diff_steps, "Requested diffusion step exceeds the defined diffusion step range"
 
@@ -51,7 +51,20 @@ class Diffuser():
         else:
             z = torch.empty(size = x.shape, device = self.device).normal_()
 
+        x0 = (1/math.sqrt(self.bar_alphas[n-1]))*(x - math.sqrt((1-self.bar_alphas[n-1]))*epsilon)
+
         x = (1/math.sqrt(self.alphas[n-1]))*(x - (self.betas[n-1]/math.sqrt(1-self.bar_alphas[n-1]))*epsilon) + math.sqrt(self.betas[n-1])*z
+
+
+        # if not historical_data is None:
+        #     weights = torch.exp(-0.03*torch.arange(historical_data.shape[0],0,-1))
+        #     weights /= sum(weights)
+
+        #     diff = x - np.sum(historical_data*np.expand_dims(weights,-1),0)
+
+        diff = x - historical_data
+
+        x -= 0.000*diff
 
         return x
     
