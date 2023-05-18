@@ -37,7 +37,7 @@ class MeanScaler(nn.Module):
             self, 
             device: torch.device,
             min_scale: float = 1e-3,
-            scaler_kwargs: Dict[str,Any] = None
+            scaler_kwargs: Dict[str,Any] = {}
         ):
 
         super().__init__()

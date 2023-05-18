@@ -64,7 +64,7 @@ class Diffuser():
 
         diff = x - historical_data
 
-        x -= 0.000*diff
+        x -= 0.005*diff
 
         return x
     
