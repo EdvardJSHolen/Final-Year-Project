@@ -51,13 +51,13 @@ class TimeFusionDataset(Dataset):
         self.tensor_data = torch.tensor(self.data.to_numpy(),dtype=torch.float32)
 
     def get_sample_tensor(self, idx: int) -> Tensor:
-        context = self.tensor_data[idx : idx + self.context_length].T
+        context = torch.clone(self.tensor_data[idx : idx + self.context_length].T)
         return context
 
     def __len__(self) -> int:
         return max(0, self.tensor_data.shape[0] - self.context_length - 1 - self.end_padding)
 
     def __getitem__(self, idx: int) -> Tensor:
-        context = self.tensor_data[idx : idx + self.context_length].T
-        target = self.tensor_data[idx + self.context_length, self.ts_columns]
+        context = torch.clone(self.tensor_data[idx : idx + self.context_length].T)
+        target = torch.clone(self.tensor_data[idx + self.context_length, self.ts_columns])
         return context, target

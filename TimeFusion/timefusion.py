@@ -342,6 +342,7 @@ class TimeFusion(nn.Module):
 
                 # Get context Tensor at index
                 context = data.get_sample_tensor(idx + pred_idx)
+                context = context.to(self.device)
 
                 # Repeat token to give correct batch size
                 context = context.unsqueeze(0).repeat(min(num_samples - batch_idx,batch_size),1,1)
@@ -353,6 +354,8 @@ class TimeFusion(nn.Module):
                 # Scale data
                 if self.scaling:
                     context = self.scaler(context)
+                    scaled_historical_data = self.scaler(torch.clone(historical_data),update_scales=False)
+                    # TODO: Historical data should be scaled by itself, not context
 
                 # Sample initial white noise
                 x = self.diffuser.initial_noise(
@@ -371,7 +374,7 @@ class TimeFusion(nn.Module):
                         x = x,
                         epsilon = epsilon,
                         n = n,
-                        historical_data=historical_data[pred_idx]
+                        historical_data=scaled_historical_data[:,:,pred_idx]
                     )
 
                 if self.scaling:
