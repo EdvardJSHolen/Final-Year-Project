@@ -61,9 +61,9 @@ class Diffuser():
         #     weights /= sum(weights)
 
         #     diff = x - np.sum(historical_data*np.expand_dims(weights,-1),0)
-        diff = x - historical_data
+        diff = x0 - historical_data
 
-        x -= 0.04*diff
+        x -= 0.00*diff
 
         return x
     

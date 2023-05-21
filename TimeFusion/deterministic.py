@@ -24,6 +24,7 @@ class DeterministicForecaster(nn.Module):
             hidden_size: int = 40,
             fc_layers: int = 3,
             recurrent_layers: int = 2,
+            dropout: float = 0.0,
             scaling: bool = False,
             device: torch.device = torch.device("cpu"),
             **kwargs
@@ -145,7 +146,7 @@ class DeterministicForecaster(nn.Module):
 
                 if self.scaling:
                     context = self.scaler(context)
-                    target = torch.squeeze(self.scaler(target.unsqueeze(-1), update_scales = False))
+                    #target = torch.squeeze(self.scaler(target.unsqueeze(-1), update_scales = False))
 
                 # Zero gradients
                 optimizer.zero_grad()
@@ -153,6 +154,8 @@ class DeterministicForecaster(nn.Module):
                 # Forward, loss calculation, backward, optimizer step
                 predictions = self.forward(context)
 
+                if self.scaling:
+                    predictions = self.scaler.unscale(predictions.unsqueeze(-1)).squeeze()
                 loss = loss_function(predictions,target)
                 loss.backward()
                 optimizer.step()
@@ -177,10 +180,12 @@ class DeterministicForecaster(nn.Module):
                         
                         if self.scaling:
                             context = self.scaler(context)
-                            target = torch.squeeze(self.scaler(target.unsqueeze(-1), update_scales = False))
+                            #target = torch.squeeze(self.scaler(target.unsqueeze(-1), update_scales = False))
 
                         # Calculate prediction metrics
                         predictions = self.forward(context)
+                        if self.scaling:
+                            predictions = self.scaler.unscale(predictions.unsqueeze(-1)).squeeze()
                         for key, metric_func in val_metrics.items():
                             running_loss[key] += metric_func(predictions,target).item() 
                     

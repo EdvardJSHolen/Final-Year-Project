@@ -108,8 +108,8 @@ class TimeFusion(nn.Module):
             )
 
         self.diff_embedding = DiffusionEmbedding(
-            dim = 32,
-            proj_dim = 32,
+            dim = 16,
+            proj_dim = 16,
             device= device
         )
 
@@ -129,19 +129,25 @@ class TimeFusion(nn.Module):
         )
         
         self.linear1 = nn.Linear(
-            in_features = output_size + hidden_size + 32,
-            out_features = output_size + hidden_size + 32,
+            in_features = output_size + hidden_size + 16,
+            out_features = 200,
             device =device
         )
 
         self.linear2 = nn.Linear(
-            in_features = output_size + hidden_size + 32,
-            out_features = output_size + hidden_size + 32,
+            in_features = 200,
+            out_features = 200,
+            device=device
+        )
+        
+        self.linear3 = nn.Linear(
+            in_features = 200,
+            out_features = 200,
             device=device
         )
 
-        self.linear3 = nn.Linear(
-            in_features = output_size + hidden_size + 32,
+        self.linear4 = nn.Linear(
+            in_features = 200,
             out_features = output_size,
             device=device
         )
@@ -166,6 +172,8 @@ class TimeFusion(nn.Module):
         x = self.linear2(x)
         x = self.relu(x)
         x = self.linear3(x)
+        x = self.relu(x)
+        x = self.linear4(x)
         
         return x
     
@@ -183,6 +191,8 @@ class TimeFusion(nn.Module):
         x = self.linear2(x)
         x = self.relu(x)
         x = self.linear3(x)
+        x = self.relu(x)
+        x = self.linear4(x)
 
         return x, h
 
@@ -335,6 +345,7 @@ class TimeFusion(nn.Module):
         
         samples = torch.empty((num_samples,len(data.ts_columns),self.prediction_length), dtype=torch.float32, device=self.device)
         # Sample for the same length as prediction length
+        x_copies = torch.empty((self.prediction_length,num_samples,self.diff_steps,len(data.ts_columns)), dtype=torch.float32, device=self.device)
         for pred_idx in range(self.prediction_length):
             
             # Split computation into batches
@@ -377,12 +388,16 @@ class TimeFusion(nn.Module):
                         historical_data=scaled_historical_data[:,:,pred_idx]
                     )
 
+
+                    x_copies[pred_idx,batch_idx:batch_idx+batch_size,n-1,:] = torch.clone(x)
                 if self.scaling:
                     x = torch.squeeze(self.scaler.unscale(x.unsqueeze(-1)))
+
 
                 # Store denoised samples
                 samples[batch_idx:batch_idx+batch_size,:,pred_idx] = x
 
+        return x_copies
         return samples
 
 
