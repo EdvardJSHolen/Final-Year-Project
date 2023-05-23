@@ -1,0 +1,29 @@
+[tool.poetry]
+name = "timefusion"
+version = "0.1.0"
+description = ""
+authors = ["Edvard Holen"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = ">=3.10,<3.12"
+ipykernel = "^6.21.2"
+#torch = "^1.13.1"
+#torchvision = "^0.14.1"
+#torchaudio = "^0.13.1"
+#pandas = "^1.5.3"
+torch = "^2.0.0"
+torchvision = "^0.15.1"
+torchaudio = "^2.0.1"
+scipy = "^1.10.1"
+
+
+[tool.poetry.group.dev.dependencies]
+pandas = "^1.5.3"
+matplotlib = "^3.7.0"
+ipython = "^8.11.0"
+line-profiler = "^4.0.3"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

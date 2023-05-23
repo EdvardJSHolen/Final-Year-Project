@@ -1,3 +1,5 @@
 */.ipynb_checkpoints/*
 .DS*
 datasets/stock_market_data
+*.png
+weights*
