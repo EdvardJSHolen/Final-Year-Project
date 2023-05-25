@@ -211,7 +211,7 @@ class TimeFusion(nn.Module):
                     h = None
                     for n in range(self.diff_steps,0,-1):
 
-                        epsilon, h = self.forward(x, torch.full(context.shape[:1],n), torch.concat((context,covariates), dim = 1), h)
+                        epsilon, h = self.forward(x, torch.full(context.shape[:1],n,device=self.device), torch.concat((context,covariates), dim = 1), h)
 
                         x = self.diffuser.denoise(
                             x = x,

@@ -38,7 +38,7 @@ def variogram_score(
                 repeated_ri = np.dstack([realisations[...,i]]*timeseries)[0]
                 repeated_rj = np.dstack([realisations[...,j]]*timeseries)[0]
 
-                variogram_sum += ((abs(repeated_ri - repeated_rj.T)**p + (abs(repeated_pi - repeated_pj.transpose(0,2,1))**p).mean(axis=0))**2).mean()
+                variogram_sum += ((abs(repeated_ri - repeated_rj.T)**p - (abs(repeated_pi - repeated_pj.transpose(0,2,1))**p).mean(axis=0))**2).mean()
                 sum_elements += 1 
 
             return variogram_sum / sum_elements
@@ -49,7 +49,7 @@ def variogram_score(
             repeated_p = np.dstack([flat_p]*flat_p.shape[1])
             repeated_r = np.dstack([flat_r]*flat_r.shape[0])[0]
 
-            return ((abs(repeated_r - repeated_r.T)**p + (abs(repeated_p - repeated_p.transpose(0,2,1))**p).mean(axis=0))**2).mean()
+            return ((abs(repeated_r - repeated_r.T)**p - (abs(repeated_p - repeated_p.transpose(0,2,1))**p).mean(axis=0))**2).mean()
 
 
 def crps(x: np.ndarray, y: float) -> float:

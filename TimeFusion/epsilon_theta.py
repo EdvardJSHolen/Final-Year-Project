@@ -4,6 +4,37 @@ import torch
 # Module imports
 from torch import nn, Tensor
 
+import math
+
+class DiffusionEmbedding(nn.Module):
+
+    def __init__(self, dim: int, proj_dim: int, device: torch.device, max_steps: int = 500):
+        super().__init__()
+
+        # Look up table for sine encodings
+        step = torch.arange(max_steps, device = device).unsqueeze(1)
+        div_term = torch.exp(torch.arange(0, dim, 2, device=device) * (-math.log(10000.0) / dim))
+        pe = torch.zeros(max_steps, dim, device = device)
+        pe[:, 0::2] = torch.sin(step * div_term)
+        pe[:, 1::2] = torch.cos(step * div_term)
+        self.register_buffer('pe', pe)
+
+        # FC network
+        self.projection1 = nn.Linear(dim, proj_dim,device=device)
+        self.tanh1 = nn.Tanh()
+        self.projection2 = nn.Linear(proj_dim, proj_dim,device=device)
+
+    def forward(self, x: Tensor) -> Tensor:
+        """
+        Args:
+            x: Tensor with shape [batch_size] giving the diffusion step
+        """
+        x = self.pe[x]
+        x = self.projection1(x)
+        x = self.tanh1(x)
+        x = self.projection2(x)
+        return x
+
 class EpsilonTheta(nn.Module):
 
     def __init__(
@@ -34,12 +65,24 @@ class EpsilonTheta(nn.Module):
         super().__init__()
 
         # Diffusion embedding
-        self.embedding = nn.Embedding(
-            num_embeddings = diff_steps, 
-            #embedding_dim = output_size, 
-            embedding_dim = rnn_hidden,
-            device = device
+        #self.embedding = nn.Embedding(
+        #    num_embeddings = diff_steps, 
+        #     #embedding_dim = output_size, 
+        #    embedding_dim = 32,
+        #    device = device
+        #)
+
+        # # Set embedding weights to sine waves
+        # embedding_weights = torch.zeros((self.embedding.weight.shape), device = device)
+        # ## THIS IS WHERE I LEFT OFF
+        # print(self.embedding.weight.shape)
+        # self.embedding.weight = nn.Parameter(torch.ones_like(self.embedding.weight))
+        self.embedding = DiffusionEmbedding(
+            dim = 32,
+            proj_dim = rnn_hidden,
+            device= device
         )
+
 
         # Instantiate rnn network
         self.rnn = nn.LSTM(
@@ -54,10 +97,10 @@ class EpsilonTheta(nn.Module):
         layers = []
 
         # Downscaling layers
-        factor = autoencoder_latent / (2*rnn_hidden + output_size)
+        factor = autoencoder_latent / (rnn_hidden + output_size)
         for i in range(autoencoder_layers):
-            in_features = round((2*rnn_hidden + output_size)*(factor)**(i/autoencoder_layers))
-            out_features = round((2*rnn_hidden + output_size)*(factor)**((i + 1)/autoencoder_layers))
+            in_features = round((rnn_hidden + output_size)*(factor)**(i/autoencoder_layers))
+            out_features = round((rnn_hidden + output_size)*(factor)**((i + 1)/autoencoder_layers))
             layers.append(nn.Linear(in_features, out_features, device = device))
             layers.append(activation_fn)
 
@@ -86,7 +129,7 @@ class EpsilonTheta(nn.Module):
 
         _x = x
         
-        _x = torch.cat((_x, h[:,-1], _n), dim = 1)
+        _x = torch.cat((_x, h[:,-1] + _n), dim = 1)
         _x = self.autoencoder(_x)
 
         return _x, h
