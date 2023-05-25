@@ -34,6 +34,24 @@ class DiffusionEmbedding(nn.Module):
         x = self.tanh1(x)
         x = self.projection2(x)
         return x
+    
+class ResidualBlock(nn.Module):
+
+    def __init__(self, input_size: int, output_size: int, hidden_size: int, device: torch.device):
+        super().__init__()
+
+        self.linear1 = nn.Linear(input_size, hidden_size, device = device)
+        self.relu = nn.ReLU()
+        self.linear2 = nn.Linear(hidden_size, output_size, device=device)
+        self.tanh = nn.Tanh()
+
+    def forward(self, x: Tensor) -> Tensor:
+        
+        x_ = self.linear1(x)
+        x_ = self.relu(x_)
+        x_ = self.linear2(x_)
+        x = self.tanh(x + x_)
+        return x
 
 class EpsilonTheta(nn.Module):
 
@@ -95,25 +113,32 @@ class EpsilonTheta(nn.Module):
 
         ### Create autoencoder ###
         layers = []
+        
+        layers.append(nn.Linear(rnn_hidden + output_size,rnn_hidden + output_size,device=device))
+        layers.append(ResidualBlock(rnn_hidden + output_size,rnn_hidden + output_size,100,device))
+        layers.append(ResidualBlock(rnn_hidden + output_size,rnn_hidden + output_size,100,device))
+        layers.append(ResidualBlock(rnn_hidden + output_size,rnn_hidden + output_size,100,device))
+        layers.append(ResidualBlock(rnn_hidden + output_size,rnn_hidden + output_size,100,device))
+        layers.append(nn.Linear(rnn_hidden + output_size,output_size,device=device))
 
         # Downscaling layers
-        factor = autoencoder_latent / (rnn_hidden + output_size)
-        for i in range(autoencoder_layers):
-            in_features = round((rnn_hidden + output_size)*(factor)**(i/autoencoder_layers))
-            out_features = round((rnn_hidden + output_size)*(factor)**((i + 1)/autoencoder_layers))
-            layers.append(nn.Linear(in_features, out_features, device = device))
-            layers.append(activation_fn)
+        #factor = autoencoder_latent / (rnn_hidden + output_size)
+        #for i in range(autoencoder_layers):
+        #    in_features = round((rnn_hidden + output_size)*(factor)**(i/autoencoder_layers))
+        #    out_features = round((rnn_hidden + output_size)*(factor)**((i + 1)/autoencoder_layers))
+        #    layers.append(nn.Linear(in_features, out_features, device = device))
+        #    layers.append(activation_fn)
 
         # Upscaling layers
-        factor = output_size / autoencoder_latent
-        for i in range(autoencoder_layers):
-            in_features = round((autoencoder_latent)*(factor)**(i/autoencoder_layers))
-            out_features = round((autoencoder_latent)*(factor)**((i + 1)/autoencoder_layers))
-            layers.append(nn.Linear(in_features, out_features, device = device))
-            layers.append(activation_fn)
+        #factor = output_size / autoencoder_latent
+        #for i in range(autoencoder_layers):
+        #    in_features = round((autoencoder_latent)*(factor)**(i/autoencoder_layers))
+        #    out_features = round((autoencoder_latent)*(factor)**((i + 1)/autoencoder_layers))
+        #    layers.append(nn.Linear(in_features, out_features, device = device))
+        #    layers.append(activation_fn)
 
         # Remove last activation
-        layers.pop()
+        #layers.pop()
         self.autoencoder = nn.Sequential(*layers)
         
     def forward(self, x: Tensor, n: Tensor, context: Tensor = None, h: Tensor = None) -> Tensor:
