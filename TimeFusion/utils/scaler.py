@@ -30,7 +30,7 @@ class MeanScaler(nn.Module):
             self.scales = torch.maximum(means, torch.full(means.shape, self.min_scale, device = self.device))
 
         # Scale data
-        if x.dim == self.scales.dim:
+        if x.dim() == self.scales.dim():
             x /= self.scales
         else:
             x /= self.scales.unsqueeze(-1)

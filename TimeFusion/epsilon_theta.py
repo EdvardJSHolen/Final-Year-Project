@@ -36,7 +36,8 @@ class EpsilonTheta(nn.Module):
         # Diffusion embedding
         self.embedding = nn.Embedding(
             num_embeddings = diff_steps, 
-            embedding_dim = output_size, 
+            #embedding_dim = output_size, 
+            embedding_dim = rnn_hidden,
             device = device
         )
 
@@ -53,10 +54,10 @@ class EpsilonTheta(nn.Module):
         layers = []
 
         # Downscaling layers
-        factor = autoencoder_latent / (rnn_hidden + output_size)
+        factor = autoencoder_latent / (2*rnn_hidden + output_size)
         for i in range(autoencoder_layers):
-            in_features = round((rnn_hidden + output_size)*(factor)**(i/autoencoder_layers))
-            out_features = round((rnn_hidden + output_size)*(factor)**((i + 1)/autoencoder_layers))
+            in_features = round((2*rnn_hidden + output_size)*(factor)**(i/autoencoder_layers))
+            out_features = round((2*rnn_hidden + output_size)*(factor)**((i + 1)/autoencoder_layers))
             layers.append(nn.Linear(in_features, out_features, device = device))
             layers.append(activation_fn)
 
@@ -80,10 +81,21 @@ class EpsilonTheta(nn.Module):
             context = context.permute((0,2,1))
             h, _  = self.rnn(context)
 
-        _n = self.embedding(n)
-        _x = x + _n
+        _n = self.embedding(n - 1)
+        #_x = x + _n
+
+        _x = x
         
-        _x = torch.cat((_x, h[:,-1]), dim = 1)
+        _x = torch.cat((_x, h[:,-1], _n), dim = 1)
         _x = self.autoencoder(_x)
 
         return _x, h
+
+
+# TODO:
+# 1. Try to initialize the embedding with the sine waves
+# 2. Try to initialize the embedding with the sine waves and train the embedding
+# 3. Try to initialize the embedding with the sine waves and train the embedding with linear layers
+# 4. Try to increase the size of the latent dimension -> Gave better performance
+# 5. Try to implement the same network as before but with this new framework and check that I get equivalent results.
+# 6. Trying concatenation rather than addition

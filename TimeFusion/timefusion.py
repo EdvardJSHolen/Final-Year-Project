@@ -84,7 +84,7 @@ class TimeFusion(nn.Module):
         self.train(True)
 
         if optimizer is None:
-            optimizer = optim.SparseAdam(params = self.parameters(), lr = 1e-3)
+            optimizer = optim.Adam(params = self.parameters(), lr = 1e-3)
 
         # Set default validation metrics
         val_metrics = val_metrics | {"val_loss": loss_function}
@@ -112,7 +112,7 @@ class TimeFusion(nn.Module):
                 optimizer.zero_grad()
 
                 # Make prediction
-                predictions = self.forward(torch.concat((context,covariates),dim = 1), x, n)
+                predictions, _ = self.forward(x, n, torch.concat((context,covariates),dim = 1))
 
                 # Calculate loss and update weights
                 loss = loss_function(predictions,target)
@@ -122,7 +122,7 @@ class TimeFusion(nn.Module):
                 # Print training statistics
                 running_loss += loss.item()
                 average_loss = running_loss / i
-                pbar.set_postfix(f"Training loss: {average_loss:.4f}")
+                pbar.set_postfix({"Training loss": f"{average_loss:.4f}"})
 
             if lr_scheduler:
                 lr_scheduler.step()
@@ -144,15 +144,15 @@ class TimeFusion(nn.Module):
                         x, target, n = self.diffuser.diffuse(target)
 
                         # Make prediction
-                        predictions = self.forward(torch.concat((context,covariates),dim = 1), x, n)
+                        predictions, _ = self.forward(x, n, torch.concat((context,covariates),dim = 1))
 
                         # Calculate metrics
                         for key, metric_func in val_metrics.items():
                             running_loss[key] += metric_func(predictions,target).item() 
 
-                    stat_string = f"Validation loss: {running_loss['val_loss'] / len(val_loader):.4f}"
+                    stat_string = ""
                     for metric, value in running_loss.items():
-                        stat_string += f", {metric}: {value / len(val_loader):.4f}"
+                        stat_string += f"{metric}: {value / len(val_loader):.4f} , "
                     print(stat_string)
 
             if not early_stopper is None:
@@ -191,8 +191,9 @@ class TimeFusion(nn.Module):
                     context = context.to(self.device)
                     covariates = covariates.to(self.device)
 
-                    # Repeat context to give correct batch size
+                    # Repeat context and covariates to give correct batch size
                     context = context.unsqueeze(0).repeat(min(num_samples - batch_idx,batch_size),1,1)
+                    covariates = covariates.unsqueeze(0).repeat(min(num_samples - batch_idx,batch_size),1,1)
 
                     # Replace existing data into Tensor
                     if pred_idx > 0:
@@ -210,7 +211,7 @@ class TimeFusion(nn.Module):
                     h = None
                     for n in range(self.diff_steps,0,-1):
 
-                        epsilon, h = self.forward(x = x, n = torch.full(context.shape[:1],n), context = context, h = h)
+                        epsilon, h = self.forward(x, torch.full(context.shape[:1],n), torch.concat((context,covariates), dim = 1), h)
 
                         x = self.diffuser.denoise(
                             x = x,
@@ -222,6 +223,6 @@ class TimeFusion(nn.Module):
                         x = torch.squeeze(self.scaler.unscale(x.unsqueeze(-1)))
 
                     # Store denoised samples
-                    samples[i,batch_idx:batch_idx+context.shape[0],:,pred_idx] = x.detach.clone()
+                    samples[i,batch_idx:batch_idx+context.shape[0],:,pred_idx] = x.detach().clone()
 
         return samples

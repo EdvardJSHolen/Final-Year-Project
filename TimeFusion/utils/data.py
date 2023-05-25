@@ -22,11 +22,11 @@ class TimeFusionDataset(Dataset):
         
         # Save instance variables
         self.context_length = context_length
-        self.pred_columns = pred_columns
-        self.cov_columns = list(set(self.data.columns) - set(self.pred_columns))
 
+        self.pred_columns = pred_columns
         if self.pred_columns is None:
             self.pred_columns = self.data.columns
+        self.cov_columns = list(set(self.data.columns) - set(self.pred_columns))
 
         # Store the time series in a Tensor
         self.tensor_data = torch.tensor(self.data.to_numpy(),dtype=torch.float32)
