@@ -35,6 +35,18 @@ class DiffusionEmbedding(nn.Module):
         x = self.projection2(x)
         return x
     
+class ScaleLayer(nn.Module):
+
+    def __init__(self, dim: int, device: torch.device):
+        super().__init__()
+
+        self.scales = torch.nn.Parameter(torch.empty(dim,device=device))
+        #torch.nn.init.xavier_uniform(self.scales)
+
+    def forward(self, x: Tensor) -> Tensor:
+
+        return x * self.scales
+    
 class ResidualBlock(nn.Module):
 
     def __init__(self, input_size: int, output_size: int, hidden_size: int, device: torch.device):
@@ -114,11 +126,12 @@ class EpsilonTheta(nn.Module):
         ### Create autoencoder ###
         layers = []
         
-        layers.append(nn.Linear(rnn_hidden + output_size,rnn_hidden + output_size,device=device))
-        layers.append(ResidualBlock(rnn_hidden + output_size,rnn_hidden + output_size,100,device))
-        layers.append(ResidualBlock(rnn_hidden + output_size,rnn_hidden + output_size,100,device))
-        layers.append(ResidualBlock(rnn_hidden + output_size,rnn_hidden + output_size,100,device))
-        layers.append(ResidualBlock(rnn_hidden + output_size,rnn_hidden + output_size,100,device))
+        #layers.append(nn.Linear(rnn_hidden + output_size,rnn_hidden + output_size,device=device))
+        layers.append(ScaleLayer(rnn_hidden+output_size,device=device))
+        layers.append(ResidualBlock(rnn_hidden + output_size,rnn_hidden + output_size,150,device))
+        layers.append(ResidualBlock(rnn_hidden + output_size,rnn_hidden + output_size,150,device))
+        layers.append(ResidualBlock(rnn_hidden + output_size,rnn_hidden + output_size,150,device))
+        layers.append(ResidualBlock(rnn_hidden + output_size,rnn_hidden + output_size,150,device))
         layers.append(nn.Linear(rnn_hidden + output_size,output_size,device=device))
 
         # Downscaling layers
