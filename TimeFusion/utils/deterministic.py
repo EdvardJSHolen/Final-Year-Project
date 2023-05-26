@@ -48,6 +48,7 @@ class DeterministicForecaster(nn.Module):
             hidden_size = hidden_size,
             num_layers = rnn_layers,
             batch_first = True,
+            dropout = 0.2,
             device = device
         )
 
@@ -207,8 +208,11 @@ class DeterministicForecaster(nn.Module):
             for pred_idx in range(prediction_length):
 
                 # Get context Tensor at indices in batch
-                context = torch.stack([data.get_sample_tensor(i + pred_idx) for i in indices[batch_idx:batch_idx+batch_size]])
+                context, covariates = zip(*[data.get_sample_tensor(i + pred_idx) for i in indices[batch_idx:batch_idx+batch_size]])
+                context = torch.stack(context)
+                covariates = torch.stack(covariates)
                 context = context.to(self.device)
+                covariates = covariates.to(self.device)
 
                 # Replace existing data into Tensor
                 if pred_idx > 0:
@@ -219,7 +223,7 @@ class DeterministicForecaster(nn.Module):
                     context = self.scaler(context)
 
                 # Predict future values
-                predictions = self.forward(context)
+                predictions = self.forward(torch.cat([context,covariates], dim = 1))
 
                 if self.scaling:
                     predictions = self.scaler.unscale(predictions)
