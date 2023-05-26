@@ -26,8 +26,8 @@ class TimeFusion(nn.Module):
         rnn_layers: int = 2,
         rnn_hidden: int = 40,
         residual_layers: int = 2,
-        residual_size: int = 100,
         residual_hidden: int = 100,
+        dropout: float = 0.0,
         scaling: bool = False,
         diff_steps: int = 100,
         betas: List[float] = None,
@@ -59,8 +59,8 @@ class TimeFusion(nn.Module):
             rnn_layers = rnn_layers,
             rnn_hidden = rnn_hidden,
             residual_layers = residual_layers,
-            residual_size = residual_size,
             residual_hidden = residual_hidden,
+            dropout=dropout,
             diff_steps = diff_steps,
             device = device,
             **kwargs
@@ -81,7 +81,8 @@ class TimeFusion(nn.Module):
         early_stopper: EarlyStopper = None,
         save_weights: bool = False,
         weight_folder: str = "weights",
-        restore_weights: bool = True
+        restore_weights: bool = True,
+        disable_progress_bar: bool = False,
     ):
         # Set the network into training mode
         self.train(True)
@@ -94,7 +95,7 @@ class TimeFusion(nn.Module):
             
         for epoch in range(1,epochs+1):
 
-            pbar = tqdm(train_loader, unit = "batch", desc = f"Epoch: {epoch}/{epochs}")
+            pbar = tqdm(train_loader, unit = "batch", desc = f"Epoch: {epoch}/{epochs}", disable=disable_progress_bar)
 
             running_loss = 0
             for i, data in enumerate(pbar,1):
@@ -156,7 +157,7 @@ class TimeFusion(nn.Module):
                     stat_string = ""
                     for metric, value in running_loss.items():
                         stat_string += f"{metric}: {value / len(val_loader):.4f} , "
-                    print(stat_string)
+                    #print(stat_string)
 
             if not early_stopper is None:
                 if early_stopper.early_stop(model = self, validation_loss = running_loss["val_loss"] if val_loader is not None else average_loss):

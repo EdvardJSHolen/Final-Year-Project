@@ -77,8 +77,8 @@ class EpsilonTheta(nn.Module):
         rnn_layers: int = 2,
         rnn_hidden: int = 40,
         residual_layers: int = 2,
-        residual_size: int = 100,
         residual_hidden: int = 100,
+        dropout: float = 0.0,
         diff_steps: int = 100,
         device: torch.device = torch.device("cpu"),
         **kwargs
@@ -112,6 +112,7 @@ class EpsilonTheta(nn.Module):
             input_size = input_size,
             hidden_size = rnn_hidden,
             num_layers = rnn_layers,
+            dropout = dropout,
             batch_first = True,
             device = device
         )
@@ -119,11 +120,11 @@ class EpsilonTheta(nn.Module):
         # Add residual layers
         layers = []
 
+        residual_size = rnn_hidden + output_size
         if kwargs.get("residual_scaler", False):
-            layers.append(ScaleLayer(rnn_hidden + output_size, device = device))
-            residual_size = rnn_hidden + output_size
+            layers.append(ScaleLayer(residual_size, device = device))
         else:
-            layers.append(nn.Linear(rnn_hidden + output_size, residual_size, device = device))
+            layers.append(nn.Linear(residual_size, residual_size, device = device))
 
         for _ in range(residual_layers):
             layers.append(ResidualBlock(residual_size, residual_hidden, device))
