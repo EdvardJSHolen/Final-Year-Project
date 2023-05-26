@@ -179,10 +179,15 @@ class TimeFusion(nn.Module):
         prediction_length: int,
         num_samples: int = 1,
         batch_size: int = 64,
+        anchors: Tensor = None,
+        anchor_strength: float = 0.01,
     ):
 
         # Enter evaluation mode
         self.train(False)
+
+        if anchors is not None:
+            anchors = anchors.to(self.device)
         
         samples = torch.empty((len(indices), num_samples,len(data.pred_columns),prediction_length), dtype = torch.float32, device = self.device)
 
@@ -195,9 +200,11 @@ class TimeFusion(nn.Module):
                     context = context.to(self.device)
                     covariates = covariates.to(self.device)
 
-                    # Repeat context and covariates to give correct batch size
+                    # Repeat context, covariates and anchors to give correct batch size
                     context = context.unsqueeze(0).repeat(min(num_samples - batch_idx,batch_size),1,1)
                     covariates = covariates.unsqueeze(0).repeat(min(num_samples - batch_idx,batch_size),1,1)
+                    if anchors is not None:
+                        anchors_copy = anchors[i,:,pred_idx,:].unsqueeze(0).repeat(min(num_samples - batch_idx,batch_size),1,1).detach().clone()
 
                     # Replace existing data into Tensor
                     if pred_idx > 0:
@@ -205,6 +212,9 @@ class TimeFusion(nn.Module):
 
                     if self.scaling:
                         context = self.scaler(context)
+                        if anchors is not None:
+                            anchors_copy = self.scaler(anchors_copy, update_scales = False)
+
 
                     # Sample initial white noise
                     x = self.diffuser.initial_noise(
@@ -220,11 +230,13 @@ class TimeFusion(nn.Module):
                         x = self.diffuser.denoise(
                             x = x,
                             epsilon = epsilon,
-                            n = n
+                            n = n,
+                            anchors = anchors_copy if anchors is not None else None,
+                            anchor_strength = anchor_strength
                         )
 
                     if self.scaling:
-                        x = torch.squeeze(self.scaler.unscale(x.unsqueeze(-1)))
+                        x = self.scaler.unscale(x)
 
                     # Store denoised samples
                     samples[i,batch_idx:batch_idx+context.shape[0],:,pred_idx] = x.detach().clone()
