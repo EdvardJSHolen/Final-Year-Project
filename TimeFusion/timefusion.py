@@ -25,13 +25,14 @@ class TimeFusion(nn.Module):
         output_size: int,
         rnn_layers: int = 2,
         rnn_hidden: int = 40,
-        autoencoder_layers: int = 1,
-        autoencoder_latent: int = 40,
-        activation_fn: nn.Module = nn.ReLU(),
+        residual_layers: int = 2,
+        residual_size: int = 100,
+        residual_hidden: int = 100,
         scaling: bool = False,
         diff_steps: int = 100,
         betas: List[float] = None,
-        device: torch.device = torch.device("cpu")
+        device: torch.device = torch.device("cpu"),
+        **kwargs
     ):
         
         super().__init__()
@@ -57,12 +58,14 @@ class TimeFusion(nn.Module):
             output_size = output_size,
             rnn_layers = rnn_layers,
             rnn_hidden = rnn_hidden,
-            autoencoder_layers = autoencoder_layers,
-            autoencoder_latent = autoencoder_latent,
-            activation_fn = activation_fn,
+            residual_layers = residual_layers,
+            residual_size = residual_size,
+            residual_hidden = residual_hidden,
             diff_steps = diff_steps,
-            device = device
+            device = device,
+            **kwargs
         )
+
 
     def forward(self, x: Tensor, n: Tensor, context: Tensor = None, h: Tensor = None) -> Tensor:
         return self.epsilon_theta(x, n, context, h)
@@ -157,9 +160,10 @@ class TimeFusion(nn.Module):
 
             if not early_stopper is None:
                 if early_stopper.early_stop(model = self, validation_loss = running_loss["val_loss"] if val_loader is not None else average_loss):
-                    if restore_weights:
-                        self.load_state_dict(early_stopper.best_weights)
                     break
+
+        if not early_stopper is None and restore_weights:
+            self.load_state_dict(early_stopper.best_weights)
 
         if save_weights:
             if (weight_folder != "") and (not os.path.exists(weight_folder)):

@@ -1,60 +1,62 @@
 # Library imports
 import torch
+import math
 
 # Module imports
 from torch import nn, Tensor
 
-import math
 
 class DiffusionEmbedding(nn.Module):
+    # This class borrows code from the PyTorch implementation of the Transformer model
 
-    def __init__(self, dim: int, proj_dim: int, device: torch.device, max_steps: int = 500):
+    def __init__(self, num_sines: int, out_dim: int, device: torch.device, diff_steps: int = 100):
         super().__init__()
 
         # Look up table for sine encodings
-        step = torch.arange(max_steps, device = device).unsqueeze(1)
-        div_term = torch.exp(torch.arange(0, dim, 2, device=device) * (-math.log(10000.0) / dim))
-        pe = torch.zeros(max_steps, dim, device = device)
-        pe[:, 0::2] = torch.sin(step * div_term)
-        pe[:, 1::2] = torch.cos(step * div_term)
+        steps = torch.arange(diff_steps, device = device).unsqueeze(1)
+        div_term = torch.exp(torch.arange(0, num_sines, 2, device=device) * (-math.log(10000.0) / num_sines))
+        pe = torch.zeros(diff_steps, num_sines, device = device)
+        pe[:, 0::2] = torch.sin(steps * div_term)
+        pe[:, 1::2] = torch.cos(steps * div_term)
         self.register_buffer('pe', pe)
 
-        # FC network
-        self.projection1 = nn.Linear(dim, proj_dim,device=device)
-        self.tanh1 = nn.Tanh()
-        self.projection2 = nn.Linear(proj_dim, proj_dim,device=device)
+        # Upsampling network
+        self.linear1 = nn.Linear(num_sines, out_dim, device = device)
+        self.tanh = nn.Tanh()
+        self.linear2 = nn.Linear(out_dim, out_dim, device = device)
 
     def forward(self, x: Tensor) -> Tensor:
         """
         Args:
             x: Tensor with shape [batch_size] giving the diffusion step
+        Returns:
+            Tensor with shape [batch_size, out_dim] giving the diffusion embedding
         """
         x = self.pe[x]
-        x = self.projection1(x)
-        x = self.tanh1(x)
-        x = self.projection2(x)
+        x = self.linear1(x)
+        x = self.tanh(x)
+        x = self.linear2(x)
         return x
-    
+
+
 class ScaleLayer(nn.Module):
 
     def __init__(self, dim: int, device: torch.device):
         super().__init__()
-
         self.scales = torch.nn.Parameter(torch.empty(dim,device=device))
-        #torch.nn.init.xavier_uniform(self.scales)
 
     def forward(self, x: Tensor) -> Tensor:
-
         return x * self.scales
     
+
 class ResidualBlock(nn.Module):
 
-    def __init__(self, input_size: int, output_size: int, hidden_size: int, device: torch.device):
+    def __init__(self, residual_size: int, hidden_size: int, device: torch.device):
         super().__init__()
 
-        self.linear1 = nn.Linear(input_size, hidden_size, device = device)
+        self.linear1 = nn.Linear(residual_size, hidden_size, device = device)
         self.relu = nn.ReLU()
-        self.linear2 = nn.Linear(hidden_size, output_size, device=device)
+        self.linear2 = nn.Linear(hidden_size, residual_size, device=device)
         self.tanh = nn.Tanh()
 
     def forward(self, x: Tensor) -> Tensor:
@@ -65,6 +67,7 @@ class ResidualBlock(nn.Module):
         x = self.tanh(x + x_)
         return x
 
+
 class EpsilonTheta(nn.Module):
 
     def __init__(
@@ -73,11 +76,12 @@ class EpsilonTheta(nn.Module):
         output_size: int,
         rnn_layers: int = 2,
         rnn_hidden: int = 40,
-        autoencoder_layers: int = 1,
-        autoencoder_latent: int = 40,
-        activation_fn: nn.Module = nn.ReLU(),
+        residual_layers: int = 2,
+        residual_size: int = 100,
+        residual_hidden: int = 100,
         diff_steps: int = 100,
-        device: torch.device = torch.device("cpu")
+        device: torch.device = torch.device("cpu"),
+        **kwargs
     ):
         """
         Args:
@@ -85,34 +89,23 @@ class EpsilonTheta(nn.Module):
             output_size: Number of output features, i.e. time-series dimension
             rnn_layers: Number of RNN layers
             rnn_hidden: Size of RNN hidden state
-            autoencoder_layers: Number of scaling layers in autoencoder, total number of layers is 2*autoencoder_layers
-            autoencoder_latent: Size of autoencoder latent space
-            activation_fn: Activation function used in autoencoder
+            residual_layers: Number of residual layers
+            residual_size: Size of input and output of residual layers
+            residual_hidden: Size of hidden layer in residual layers
             diff_steps: Number of diffusion steps
+            device: Device to use for computation
         """
 
         # Init base class
         super().__init__()
 
-        # Diffusion embedding
-        #self.embedding = nn.Embedding(
-        #    num_embeddings = diff_steps, 
-        #     #embedding_dim = output_size, 
-        #    embedding_dim = 32,
-        #    device = device
-        #)
-
-        # # Set embedding weights to sine waves
-        # embedding_weights = torch.zeros((self.embedding.weight.shape), device = device)
-        # ## THIS IS WHERE I LEFT OFF
-        # print(self.embedding.weight.shape)
-        # self.embedding.weight = nn.Parameter(torch.ones_like(self.embedding.weight))
+        # Embedding for diffusion steps
         self.embedding = DiffusionEmbedding(
-            dim = 32,
-            proj_dim = rnn_hidden,
-            device= device
+            num_sines = 32,
+            out_dim = rnn_hidden,
+            device = device,
+            diff_steps = diff_steps
         )
-
 
         # Instantiate rnn network
         self.rnn = nn.LSTM(
@@ -123,36 +116,22 @@ class EpsilonTheta(nn.Module):
             device = device
         )
 
-        ### Create autoencoder ###
+        # Add residual layers
         layers = []
-        
-        #layers.append(nn.Linear(rnn_hidden + output_size,rnn_hidden + output_size,device=device))
-        layers.append(ScaleLayer(rnn_hidden+output_size,device=device))
-        layers.append(ResidualBlock(rnn_hidden + output_size,rnn_hidden + output_size,150,device))
-        layers.append(ResidualBlock(rnn_hidden + output_size,rnn_hidden + output_size,150,device))
-        layers.append(ResidualBlock(rnn_hidden + output_size,rnn_hidden + output_size,150,device))
-        layers.append(ResidualBlock(rnn_hidden + output_size,rnn_hidden + output_size,150,device))
-        layers.append(nn.Linear(rnn_hidden + output_size,output_size,device=device))
 
-        # Downscaling layers
-        #factor = autoencoder_latent / (rnn_hidden + output_size)
-        #for i in range(autoencoder_layers):
-        #    in_features = round((rnn_hidden + output_size)*(factor)**(i/autoencoder_layers))
-        #    out_features = round((rnn_hidden + output_size)*(factor)**((i + 1)/autoencoder_layers))
-        #    layers.append(nn.Linear(in_features, out_features, device = device))
-        #    layers.append(activation_fn)
+        if kwargs.get("residual_scaler", False):
+            layers.append(ScaleLayer(rnn_hidden + output_size, device = device))
+            residual_size = rnn_hidden + output_size
+        else:
+            layers.append(nn.Linear(rnn_hidden + output_size, residual_size, device = device))
 
-        # Upscaling layers
-        #factor = output_size / autoencoder_latent
-        #for i in range(autoencoder_layers):
-        #    in_features = round((autoencoder_latent)*(factor)**(i/autoencoder_layers))
-        #    out_features = round((autoencoder_latent)*(factor)**((i + 1)/autoencoder_layers))
-        #    layers.append(nn.Linear(in_features, out_features, device = device))
-        #    layers.append(activation_fn)
+        for _ in range(residual_layers):
+            layers.append(ResidualBlock(residual_size, residual_hidden, device))
 
-        # Remove last activation
-        #layers.pop()
-        self.autoencoder = nn.Sequential(*layers)
+        layers.append(nn.Linear(residual_size, output_size, device = device))
+
+        self.residuals = nn.Sequential(*layers)
+
         
     def forward(self, x: Tensor, n: Tensor, context: Tensor = None, h: Tensor = None) -> Tensor:
 
@@ -163,20 +142,7 @@ class EpsilonTheta(nn.Module):
             h, _  = self.rnn(context)
 
         _n = self.embedding(n - 1)
-        #_x = x + _n
 
-        _x = x
-        
-        _x = torch.cat((_x, h[:,-1] + _n), dim = 1)
-        _x = self.autoencoder(_x)
+        x = self.residuals(torch.cat((x, h[:,-1] + _n), dim = 1))
 
-        return _x, h
-
-
-# TODO:
-# 1. Try to initialize the embedding with the sine waves
-# 2. Try to initialize the embedding with the sine waves and train the embedding
-# 3. Try to initialize the embedding with the sine waves and train the embedding with linear layers
-# 4. Try to increase the size of the latent dimension -> Gave better performance
-# 5. Try to implement the same network as before but with this new framework and check that I get equivalent results.
-# 6. Trying concatenation rather than addition
+        return x, h
