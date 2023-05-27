@@ -3,8 +3,8 @@
 #PBS -l select=1:ncpus=4:mem=24gb:ngpus=1:gpu_type=RTX6000 
 #PBS -J 0-1
 
-export NUM_TRIALS="6" 
 export NUM_PROCESSES="2"
+export CONFIG_PATH="configs/electricity_1.json" 
 
 module load anaconda3/personal
 
