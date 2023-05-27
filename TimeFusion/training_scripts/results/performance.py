@@ -1,4 +1,5 @@
 
+import torch
 import numpy as np
 from sklearn.metrics import mean_absolute_error, median_absolute_error, mean_squared_error
 from typing import List, Dict
@@ -19,21 +20,20 @@ def performance(predictor: TimeFusion, data: TimeFusionDataset, indices: List, a
         anchors = anchors,
         anchor_strength = anchor_strength,
     )
-    samples = samples.cpu().numpy()
 
     realisations = [
         data.tensor_data[prediction_length*parameters["context_length"] + idx:prediction_length*parameters["context_length"] + idx + prediction_length, data.pred_columns].T
         for idx in indices
     ]
-    realisations = np.stack(realisations)
+    realisations = torch.stack(realisations).to(samples.device)
 
 
-    mean_predictions = samples.mean(axis=1)
+    mean_predictions = samples.mean(dim=1)
 
     return {
         "mse": mean_squared_error(realisations.flatten(), mean_predictions.flatten()),
         "mae": mean_absolute_error(realisations.flatten(), mean_predictions.flatten()),
         "mdae": median_absolute_error(realisations.flatten(), mean_predictions.flatten()),
         "crps_sum": np.mean([metrics.crps_sum(samples[i], realisations[i]) for i in range(realisations.shape[0])]),
-        "variogram_score": np.mean([metrics.variogram_score(samples[i], realisations[i], weights="local", window_size=3) for i in range(realisations.shape[0])])
+        "variogram_score": np.mean([metrics.variogram_score(samples[i], realisations[i], weights="local", window_size=2) for i in range(realisations.shape[0])])
     }
