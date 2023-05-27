@@ -36,6 +36,8 @@ def main():
     # Import dataset
     train_data = pd.read_csv("../../datasets/electricity/train.csv").set_index("date")
     test_data = pd.read_csv("../../datasets/electricity/test.csv").set_index("date")
+    train_data = train_data.iloc[:,:30]
+    test_data = test_data.iloc[:,:30]
     train_data.index = pd.to_datetime(train_data.index)
     test_data.index = pd.to_datetime(test_data.index)
 
@@ -59,9 +61,9 @@ def main():
     ranges = [
         ("context_length",[24,48,96]),
         ("rnn_layers",[2,3,4]),
-        ("rnn_hidden",[106,160,319,638]),
+        ("rnn_hidden",[1/3,1/2,1,2]),
         ("residual_layers",[1,2,4]),
-        ("residual_hidden",[143,214,428,856]),
+        ("residual_hidden",[1/3,1/2,1,2]),
         ("weight_decay",[0,1e-5,1e-4]),
         ("dropout",[0,0.1,0.01]),
         ("learning_rate",[1e-3,1e-4]),
@@ -142,18 +144,22 @@ def main():
             batch_size = 128,
         )
 
-        for trial_number in range(5):  
+        for trial_number in range(5):
+            print(f"Trial number: {trial_number}")
 
             # Time at start of training
             trial_start = time.time()
+            
+            rnn_hidden = int(parameters["rnn_hidden"]*train_data.shape[1])
+            residual_hidden = int((rnn_hidden + train_data.shape[1])*parameters["residual_hidden"])
 
             predictor = TimeFusion(
                 input_size = train_dataset.data.shape[1],
                 output_size = train_data.shape[1],
                 rnn_layers = parameters["rnn_layers"],
-                rnn_hidden = parameters["rnn_hidden"],
+                rnn_hidden = rnn_hidden,
                 residual_layers = parameters["residual_layers"],
-                residual_hidden = parameters["residual_hidden"],
+                residual_hidden = residual_hidden,
                 dropout = parameters["dropout"],
                 scaling = True,
                 device = device
@@ -165,7 +171,7 @@ def main():
 
             predictor.train_network(
                 train_loader = train_loader,
-                epochs=2,
+                epochs=100,
                 val_loader = val_loader,
                 val_metrics= {
                     "Val MAE": nn.L1Loss(),
@@ -179,6 +185,7 @@ def main():
 
             # Get validation and test results and store in pandas dataframe
             for anchor_strength in [0,0.005,0.01,0.02,0.04]:
+                print(f"Anchor strength: {anchor_strength}")
 
                 # Anchors
                 max_anchors = 1.1*torch.tensor(train_data.values.max(axis=0),dtype=torch.float32) - 0.1*torch.tensor(train_data.values.mean(axis=0),dtype=torch.float32)
@@ -250,36 +257,32 @@ def main():
                 test_variogram_score = np.mean([metrics.variogram_score(samples[i], realisations[i], weights="local", window_size=3) for i in range(realisations.shape[0])])
 
                 # Store data in dataframe
-                results.append(
-                    {
-                        "trial_number" : trial_number,
-                        "trial_start" : trial_start,
-                        "trial_end" : trial_start,
-                        "context_length": parameters["context_length"],
-                        "rnn_layers": parameters["rnn_layers"],
-                        "rnn_hidden": parameters["rnn_hidden"],
-                        "residual_layers": parameters["residual_layers"],
-                        "residual_hidden": parameters["residual_hidden"],
-                        "weight_decay": parameters["weight_decay"],
-                        "dropout": parameters["dropout"],
-                        "learning_rate": parameters["learning_rate"],
-                        "anchor_strength": anchor_strength,
-                        "validation_mse": val_mse,
-                        "validation_mae": val_mae,
-                        "validation_mdae": val_mdae,
-                        "validation_crps_sum": val_crps_sum,
-                        "validation_variogram": val_variogram_score,
-                        "test_mse": test_mse,
-                        "test_mae": test_mae,
-                        "test_mdae": test_mdae,
-                        "test_crps_sum": test_crps_sum,
-                        "test_variogram": test_variogram_score,
-                    }
-                )
+                results.loc[results.shape[0]] = {
+                    "trial_number" : trial_number,
+                    "trial_start" : trial_start,
+                    "trial_end" : trial_start,
+                    "context_length": parameters["context_length"],
+                    "rnn_layers": parameters["rnn_layers"],
+                    "rnn_hidden": parameters["rnn_hidden"],
+                    "residual_layers": parameters["residual_layers"],
+                    "residual_hidden": parameters["residual_hidden"],
+                    "weight_decay": parameters["weight_decay"],
+                    "dropout": parameters["dropout"],
+                    "learning_rate": parameters["learning_rate"],
+                    "anchor_strength": anchor_strength,
+                    "validation_mse": val_mse,
+                    "validation_mae": val_mae,
+                    "validation_mdae": val_mdae,
+                    "validation_crps_sum": val_crps_sum,
+                    "validation_variogram": val_variogram_score,
+                    "test_mse": test_mse,
+                    "test_mae": test_mae,
+                    "test_mdae": test_mdae,
+                    "test_crps_sum": test_crps_sum,
+                    "test_variogram": test_variogram_score,
+                }
 
             trial_end = time.time()
-
-            results["trial_end"][-5:] = trial_end
 
             # Save results in csv file
             results.to_csv(f"results/electricity/{process_id}.csv", index=False)
