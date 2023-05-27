@@ -157,7 +157,7 @@ class TimeFusion(nn.Module):
                     stat_string = ""
                     for metric, value in running_loss.items():
                         stat_string += f"{metric}: {value / len(val_loader):.4f} , "
-                    #print(stat_string)
+                    print(stat_string)
 
             if not early_stopper is None:
                 if early_stopper.early_stop(model = self, validation_loss = running_loss["val_loss"] if val_loader is not None else average_loss):

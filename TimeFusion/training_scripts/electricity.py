@@ -126,7 +126,7 @@ def main():
             )
 
             optimizer = torch.optim.Adam(params=predictor.parameters(), lr=parameters["learning_rate"], weight_decay=parameters["weight_decay"])
-            lr_scheduler = torch.optim.lr_scheduler.LinearLR(optimizer, start_factor=1, end_factor=0.01, total_iters=100)
+            lr_scheduler = torch.optim.lr_scheduler.LinearLR(optimizer, start_factor=1, end_factor=0.01, total_iters=120)
 
             predictor.train_network(
                 train_loader = train_loader,
@@ -134,7 +134,7 @@ def main():
                 val_loader = val_loader,
                 optimizer = optimizer,
                 lr_scheduler= lr_scheduler,
-                early_stopper=EarlyStopper(patience=10),
+                early_stopper=EarlyStopper(patience=20),
                 disable_progress_bar = True,
             )
 
@@ -144,7 +144,7 @@ def main():
             anchors = torch.stack([min_anchors,max_anchors],dim = -1).unsqueeze(0).unsqueeze(2).repeat((14,1,prediction_length,1))
 
             # Get validation and test results and store in pandas dataframe
-            for anchor_strength in [0,0.005,0.01,0.02,0.04]:
+            for anchor_strength in [0,0.003,0.01,0.03]:
                 print(f"Anchor strength: {anchor_strength}")
 
                 # Validation
@@ -194,6 +194,10 @@ def main():
 
             # Save results in csv file
             results.to_csv(f"results/electricity/{process_id}.csv", index=False)
+            
+            # Check if we should kill this process
+            if os.path.isfile("results/electricity/stop.txt"):
+                exit()
 
 if __name__ == "__main__":
     main()
