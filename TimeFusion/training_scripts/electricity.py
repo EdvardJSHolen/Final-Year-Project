@@ -22,8 +22,8 @@ def main():
     prediction_length = 24
 
     print(f"Process {process_id} of {num_processes} started.")
-    if not os.path.exists("results/electricity"):
-        os.makedirs("results/electricity")
+    if not os.path.exists("results/electricity_new"):
+        os.makedirs("results/electricity_new")
 
     # Get configurations
     configs = json.load(open(config_path,"r"))
@@ -126,11 +126,11 @@ def main():
             )
 
             optimizer = torch.optim.Adam(params=predictor.parameters(), lr=parameters["learning_rate"], weight_decay=parameters["weight_decay"])
-            lr_scheduler = torch.optim.lr_scheduler.LinearLR(optimizer, start_factor=1, end_factor=0.01, total_iters=120)
+            lr_scheduler = torch.optim.lr_scheduler.LinearLR(optimizer, start_factor=1, end_factor=0.01, total_iters=100)
 
             predictor.train_network(
                 train_loader = train_loader,
-                epochs=120,
+                epochs=200,
                 val_loader = val_loader,
                 optimizer = optimizer,
                 lr_scheduler= lr_scheduler,
@@ -193,10 +193,10 @@ def main():
                 }
 
             # Save results in csv file
-            results.to_csv(f"results/electricity/{process_id}.csv", index=False)
+            results.to_csv(f"results/electricity_new/{process_id}.csv", index=False)
             
             # Check if we should kill this process
-            if os.path.isfile("results/electricity/stop.txt"):
+            if os.path.isfile("results/electricity_new/stop.txt"):
                 exit()
 
 if __name__ == "__main__":
