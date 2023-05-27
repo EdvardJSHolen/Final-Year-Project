@@ -130,7 +130,7 @@ def main():
 
             predictor.train_network(
                 train_loader = train_loader,
-                epochs=100,
+                epochs=120,
                 val_loader = val_loader,
                 optimizer = optimizer,
                 lr_scheduler= lr_scheduler,

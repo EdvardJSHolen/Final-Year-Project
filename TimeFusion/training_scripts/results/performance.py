@@ -20,12 +20,13 @@ def performance(predictor: TimeFusion, data: TimeFusionDataset, indices: List, a
         anchors = anchors,
         anchor_strength = anchor_strength,
     )
+    samples = samples.cpu()
 
     realisations = [
         data.tensor_data[prediction_length*parameters["context_length"] + idx:prediction_length*parameters["context_length"] + idx + prediction_length, data.pred_columns].T
         for idx in indices
     ]
-    realisations = torch.stack(realisations).to(samples.device)
+    realisations = torch.stack(realisations).cpu()
 
 
     mean_predictions = samples.mean(dim=1)
