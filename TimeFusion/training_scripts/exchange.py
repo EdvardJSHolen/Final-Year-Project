@@ -16,14 +16,14 @@ def main():
     from training_scripts.results.performance import performance
     
     # Check if we should kill this process
-    if os.path.isfile("results/electricity/stop.txt"):
+    if os.path.isfile("results/exchange/stop.txt"):
         exit()
     
     # Get environment variables
     process_id = int(os.environ["PBS_ARRAY_INDEX"])
     num_processes = int(os.environ["NUM_PROCESSES"])
     config_path = os.environ["CONFIG_PATH"]
-    prediction_length = 24
+    prediction_length = 30
 
     print(f"Process {process_id} of {num_processes} started.")
 
@@ -37,8 +37,8 @@ def main():
         device = torch.device("cpu")
 
     # Import dataset
-    train_data = pd.read_csv("../../datasets/electricity/train.csv", index_col="date")
-    val_data = pd.read_csv("../../datasets/electricity/val.csv", index_col="date")
+    train_data = pd.read_csv("../../datasets/exchange/train.csv", index_col="LocalTime")
+    val_data = pd.read_csv("../../datasets/exchange/val.csv", index_col="LocalTime")
 
     # Normalize the signal power of each column
     stds = train_data.std()
@@ -52,7 +52,6 @@ def main():
             data = data,
             context_length = context_length,
         )
-        dataset.add_timestamp_encodings()
 
         dataloader = DataLoader(
             dataset = dataset,
@@ -131,7 +130,7 @@ def main():
             for anchor_strength in [0,0.003,0.01,0.03]:
                 print(f"Anchor strength: {anchor_strength}")
                  # Check if we should kill this process
-                if os.path.isfile("results/electricity/stop.txt"):
+                if os.path.isfile("results/exchange/stop.txt"):
                     exit()
 
                 # Validation
@@ -146,7 +145,6 @@ def main():
                     prediction_length=prediction_length,
                     parameters=parameters,
                 )
-
 
                 # Store data in dataframe
                 results.loc[results.shape[0]] = {
@@ -163,10 +161,10 @@ def main():
                 }
 
             # Save results in csv file
-            results.to_csv(f"results/electricity/{process_id}.csv", index=False)
+            results.to_csv(f"results/exchange/{process_id}.csv", index=False)
             
             # Check if we should kill this process
-            if os.path.isfile("results/electricity/stop.txt"):
+            if os.path.isfile("results/exchange/stop.txt"):
                 exit()
 
 if __name__ == "__main__":

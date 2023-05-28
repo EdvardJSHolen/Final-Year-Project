@@ -4,6 +4,8 @@ def main():
     import os
     import torch
     import json
+    import math
+    import calendar
     import pandas as pd
     import numpy as np
     from torch.utils.data import DataLoader
@@ -16,7 +18,7 @@ def main():
     from training_scripts.results.performance import performance
     
     # Check if we should kill this process
-    if os.path.isfile("results/electricity/stop.txt"):
+    if os.path.isfile("results/solar/stop.txt"):
         exit()
     
     # Get environment variables
@@ -37,8 +39,8 @@ def main():
         device = torch.device("cpu")
 
     # Import dataset
-    train_data = pd.read_csv("../../datasets/electricity/train.csv", index_col="date")
-    val_data = pd.read_csv("../../datasets/electricity/val.csv", index_col="date")
+    train_data = pd.read_csv("../../datasets/solar/train.csv", index_col="LocalTime")
+    val_data = pd.read_csv("../../datasets/solar/val.csv", index_col="LocalTime")
 
     # Normalize the signal power of each column
     stds = train_data.std()
@@ -52,7 +54,16 @@ def main():
             data = data,
             context_length = context_length,
         )
-        dataset.add_timestamp_encodings()
+        dataset.add_timestamp_encodings(
+            timestamp_encodings = [
+                lambda x: math.sin(2*math.pi*x.hour / 24),
+                lambda x: math.sin(2*math.pi*x.weekday() / 7),
+                lambda x: math.sin(2*math.pi*x.day / calendar.monthrange(x.year, x.month)[1]),
+                lambda x: math.cos(2*math.pi*x.hour / 24),
+                lambda x: math.cos(2*math.pi*x.weekday() / 7),
+                lambda x: math.cos(2*math.pi*x.day / calendar.monthrange(x.year, x.month)[1]),
+            ]
+        )
 
         dataloader = DataLoader(
             dataset = dataset,
@@ -131,7 +142,7 @@ def main():
             for anchor_strength in [0,0.003,0.01,0.03]:
                 print(f"Anchor strength: {anchor_strength}")
                  # Check if we should kill this process
-                if os.path.isfile("results/electricity/stop.txt"):
+                if os.path.isfile("results/solar/stop.txt"):
                     exit()
 
                 # Validation
@@ -146,7 +157,6 @@ def main():
                     prediction_length=prediction_length,
                     parameters=parameters,
                 )
-
 
                 # Store data in dataframe
                 results.loc[results.shape[0]] = {
@@ -163,10 +173,10 @@ def main():
                 }
 
             # Save results in csv file
-            results.to_csv(f"results/electricity/{process_id}.csv", index=False)
+            results.to_csv(f"results/solar/{process_id}.csv", index=False)
             
             # Check if we should kill this process
-            if os.path.isfile("results/electricity/stop.txt"):
+            if os.path.isfile("results/solar/stop.txt"):
                 exit()
 
 if __name__ == "__main__":

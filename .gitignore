@@ -3,3 +3,4 @@
 datasets/stock_market_data
 *.png
 weights*
+*.csv
