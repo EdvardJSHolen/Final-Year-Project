@@ -3,8 +3,8 @@ import json
 import numpy as np
 from typing import Dict, Any
 
-num_trials = 100
-random_seed = 0
+num_trials = 50
+random_seed = 5
 config_name = f"electricity_{random_seed}"
 
 def get_hyperparameters(ranges: Dict[str,Any], parameter_id: int) -> Dict[str,Any]:
