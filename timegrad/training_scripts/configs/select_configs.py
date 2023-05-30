@@ -5,7 +5,7 @@ from typing import Dict, Any
 
 num_trials = 50
 random_seed = 0
-config_name = f"timefusion_{random_seed}"
+config_name = f"electricity_{random_seed}"
 
 def get_hyperparameters(ranges: Dict[str,Any], parameter_id: int) -> Dict[str,Any]:
     """
