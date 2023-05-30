@@ -4,8 +4,13 @@ import numpy as np
 from typing import Dict, Any
 
 num_trials = 50
+<<<<<<< HEAD:timefusion/training_scripts/configs/select_configs.py
+random_seed = 15
+config_name = f"electricity_{random_seed}"
+=======
 random_seed = 0
 config_name = f"timefusion_{random_seed}"
+>>>>>>> 1d82e864ac9e61ecaf97bf53fb3b33544f57e898:TimeFusion/training_scripts/configs/select_configs.py
 
 def get_hyperparameters(ranges: Dict[str,Any], parameter_id: int) -> Dict[str,Any]:
     """

@@ -37,8 +37,8 @@ def main():
         device = torch.device("cpu")
 
     # Import dataset
-    train_data = pd.read_csv("../../datasets/exchange/train.csv", index_col="LocalTime")
-    val_data = pd.read_csv("../../datasets/exchange/val.csv", index_col="LocalTime")
+    train_data = pd.read_csv("../../datasets/exchange/train.csv")
+    val_data = pd.read_csv("../../datasets/exchange/val.csv")
 
     # Normalize the signal power of each column
     stds = train_data.std()
