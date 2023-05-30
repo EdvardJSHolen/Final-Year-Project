@@ -18,7 +18,7 @@ def main():
     from timefusion.utils import metrics
     
     # Check if we should kill this process
-    if os.path.isfile("results/electricity/stop.txt"):
+    if os.path.isfile("results/solar/stop.txt"):
         exit()
     
     # Get environment variables
@@ -39,8 +39,8 @@ def main():
         device = torch.device("cpu")
 
     # Import dataset
-    train_data = pd.read_csv("../../datasets/electricity/train.csv", index_col="date")
-    val_data = pd.read_csv("../../datasets/electricity/val.csv", index_col="date")
+    train_data = pd.read_csv("../../datasets/solar/train.csv", index_col="LocalTime")
+    val_data = pd.read_csv("../../datasets/solar/val.csv", index_col="LocalTime")
 
     # Normalize the signal power of each column
     stds = train_data.std()
@@ -93,7 +93,7 @@ def main():
                 target_dim=train_data.shape[1],
                 prediction_length=prediction_length,
                 context_length=parameters["context_length"]*prediction_length,
-                input_size=1280,
+                input_size=552,
                 freq="h",
                 scaling=parameters["scaling"],
                 diff_steps=parameters["diff_steps"],
@@ -149,10 +149,10 @@ def main():
             }
 
             # Save results in csv file
-            results.to_csv(f"results/electricity/{process_id}.csv", index=False)
+            results.to_csv(f"results/solar/{process_id}.csv", index=False)
             
             # Check if we should kill this process
-            if os.path.isfile("results/electricity/stop.txt"):
+            if os.path.isfile("results/solar/stop.txt"):
                 exit()
 
 if __name__ == "__main__":

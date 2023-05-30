@@ -18,14 +18,14 @@ def main():
     from timefusion.utils import metrics
     
     # Check if we should kill this process
-    if os.path.isfile("results/electricity/stop.txt"):
+    if os.path.isfile("results/exchange/stop.txt"):
         exit()
     
     # Get environment variables
     process_id = int(os.environ["PBS_ARRAY_INDEX"])
     num_processes = int(os.environ["NUM_PROCESSES"])
     config_path = os.environ["CONFIG_PATH"]
-    prediction_length = 24
+    prediction_length = 30
 
     print(f"Process {process_id} of {num_processes} started.")
 
@@ -39,20 +39,22 @@ def main():
         device = torch.device("cpu")
 
     # Import dataset
-    train_data = pd.read_csv("../../datasets/electricity/train.csv", index_col="date")
-    val_data = pd.read_csv("../../datasets/electricity/val.csv", index_col="date")
+    train_data = pd.read_csv("../../datasets/exchange/train.csv")
+    val_data = pd.read_csv("../../datasets/exchange/val.csv")
 
     # Normalize the signal power of each column
     stds = train_data.std()
     train_data /= stds
     val_data /= stds
+    
+    dates = pd.date_range(start="1970-01-01",periods = len(train_data) + len(val_data), freq = "D")
 
     # Convert data into a glounts ListDataset
-    def get_dataset(df: pd.DataFrame, freq: str = "h", indices: List[int] = [-1]) -> ListDataset:
+    def get_dataset(df: pd.DataFrame,  date, freq: str = "D", indices: List[int] = [-1]) -> ListDataset:
         return ListDataset(
             [
                 {
-                    "start": df.index[0],
+                    "start": date, # Dummy date
                     "target": df.values[:i].T,
                 }
                 for i in indices
@@ -61,8 +63,8 @@ def main():
             one_dim_target=False
         )
 
-    train_dataset = get_dataset(train_data)
-    val_dataset_14 = get_dataset(val_data, indices=list(range(val_data.shape[0], val_data.shape[0] - 14*prediction_length, -prediction_length)))
+    train_dataset = get_dataset(train_data,date = dates[0])
+    val_dataset_14 = get_dataset(val_data,date = dates[len(train_data)], indices=list(range(val_data.shape[0], val_data.shape[0] - 14*prediction_length, -prediction_length)))
 
 
     # Dataframe to store results
@@ -93,7 +95,7 @@ def main():
                 target_dim=train_data.shape[1],
                 prediction_length=prediction_length,
                 context_length=parameters["context_length"]*prediction_length,
-                input_size=1280,
+                input_size=40,
                 freq="h",
                 scaling=parameters["scaling"],
                 diff_steps=parameters["diff_steps"],
@@ -149,10 +151,10 @@ def main():
             }
 
             # Save results in csv file
-            results.to_csv(f"results/electricity/{process_id}.csv", index=False)
+            results.to_csv(f"results/exchange/{process_id}.csv", index=False)
             
             # Check if we should kill this process
-            if os.path.isfile("results/electricity/stop.txt"):
+            if os.path.isfile("results/exchange/stop.txt"):
                 exit()
 
 if __name__ == "__main__":
