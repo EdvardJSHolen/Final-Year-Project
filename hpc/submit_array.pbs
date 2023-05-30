@@ -1,0 +1,13 @@
+#!/bin/bash
+#PBS -l walltime=36:00:00
+#PBS -l select=1:ncpus=4:mem=24gb:ngpus=1:gpu_type=RTX6000
+#PBS -N electricity
+#PBS -J 0-9
+
+export NUM_PROCESSES="10"
+export CONFIG_PATH="configs/timefusion_0.json" 
+
+module load anaconda3/personal
+
+cd $HOME/Final-Year-Project/timefusion/training_scripts
+python3 electricity.py

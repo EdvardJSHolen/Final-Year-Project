@@ -1,0 +1,12 @@
+[
+    ["context_length", [1,2,4]],
+    ["rnn_layers", [2,3,4]],
+    ["rnn_hidden", [0.333,0.5,1,2]],
+    ["residual_layers", [1,2,4,8]],
+    ["residual_hidden", [0.333,0.5,1,2]],
+    ["weight_decay", [0,1e-5,1e-4]],
+    ["dropout", [0,0.1,0.01]],
+    ["learning_rate", [1e-4,1e-3,1e-2]],
+    ["residual_scaler", [false,true]],
+    ["mean_scaler",[false,true]]
+]

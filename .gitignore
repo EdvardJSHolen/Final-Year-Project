@@ -1,3 +1,9 @@
 */.ipynb_checkpoints/*
 .DS*
 datasets/stock_market_data
+*.png
+weights*
+*.csv
+timefusion/training_scripts/log_files
+*checkpoint*
+*__pycache__*
