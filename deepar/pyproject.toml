@@ -1,22 +1,20 @@
 [tool.poetry]
-name = "timegrad"
+name = "deepar"
 version = "0.1.0"
 description = ""
 authors = ["Edvard J. Skaarberg Holen <edvard.holen19@imperial.ac.uk>"]
 readme = "README.md"
 
 [tool.poetry.dependencies]
-python = "^3.10"
-pytorchts = "^0.6.0"
-numpy = "^1.24.3"
-gluonts = "0.9.0"
-pytorch-lightning = "^1.9.0"
-torch = "^1.9.0"
-ujson = "^5.7.0"
+python = ">=3.10,<3.12"
+pandas = "^2.0.2"
+gluonts = "^0.13.1"
 ipykernel = "^6.23.1"
-tqdm = "^4.65.0"
-ipywidgets = "^8.0.6"
-scikit-learn = "^1.2.2"
+matplotlib = "^3.7.1"
+torch = "^2.0.1"
+pytorch-lightning = "^2.0.2"
+setuptools = "^67.8.0"
+scipy = "^1.10.1"
 
 
 [build-system]
