@@ -10,7 +10,7 @@ def main():
     from gluonts.evaluation.backtest import make_evaluation_predictions
     from gluonts.dataset.common import ListDataset
     from typing import List
-    from pts.model.time_grad import TimeGradEstimator
+    from pts.model.transformer_tempflow import TransformerTempFlowEstimator
     from pts import Trainer
     from sklearn.metrics import mean_absolute_error, median_absolute_error, mean_squared_error
 
@@ -66,7 +66,6 @@ def main():
     train_dataset = get_dataset(train_data,date = dates[0])
     val_dataset_14 = get_dataset(val_data,date = dates[len(train_data)], indices=list(range(val_data.shape[0], val_data.shape[0] - 14*prediction_length, -prediction_length)))
 
-
     # Dataframe to store results
     results = pd.DataFrame(
         columns = [
@@ -90,20 +89,25 @@ def main():
 
             # Time at start of training
             trial_start = time.time()
-
-            estimator = TimeGradEstimator(
+            
+            estimator = TransformerTempFlowEstimator(
+                input_size=40,
                 target_dim=train_data.shape[1],
                 prediction_length=prediction_length,
-                context_length=parameters["context_length"]*prediction_length,
-                input_size=40,
+                flow_type='MAF',
                 freq="D",
-                scaling=parameters["scaling"],
-                diff_steps=parameters["diff_steps"],
-                beta_schedule=parameters["beta_schedule"],
-                num_cells = parameters["num_cells"],
-                dropout_rate = parameters["dropout"],
-                num_layers = parameters["num_layers"],
-                residual_layers = parameters["residual_layers"],
+                d_model=parameters["d_model"],
+                dim_feedforward_scale=parameters["dim_feedforward_scale"],
+                num_heads=parameters["num_heads"],
+                num_encoder_layers=parameters["num_encoder_layers"],
+                num_decoder_layers=parameters["num_decoder_layers"],
+                dropout_rate=parameters["dropout_rate"],
+                n_blocks=parameters["n_blocks"],
+                hidden_size=parameters["hidden_size"],
+                n_hidden=parameters["n_hidden"],
+                conditioning_length=parameters["conditioning_length"],
+                dequantize=parameters["dequantize"],
+                context_length=parameters["context_length"]*prediction_length,
                 trainer = Trainer(
                     device=device,
                     learning_rate=parameters["learning_rate"],
