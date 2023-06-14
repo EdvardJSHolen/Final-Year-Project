@@ -28,29 +28,28 @@ def variogram_score(
 
     timeseries, timesteps = realisations.shape
 
-    match kwargs.get("weights",None):
-        case "local":
-            window_size = kwargs.get("window_size",1)
-            variogram_sum = 0
-            sum_elements = 0
-            for i, j in windowed_product(timesteps, window_size):
-                repeated_pi = predictions[...,i].unsqueeze(-1).expand(-1,-1,timeseries)
-                repeated_pj = predictions[...,j].unsqueeze(-1).expand(-1,-1,timeseries)
-                repeated_ri = realisations[...,i].unsqueeze(-1).expand(-1,timeseries)
-                repeated_rj = realisations[...,j].unsqueeze(-1).expand(-1,timeseries)
+    if kwargs.get("weights","") == "local":
+        window_size = kwargs.get("window_size",1)
+        variogram_sum = 0
+        sum_elements = 0
+        for i, j in windowed_product(timesteps, window_size):
+            repeated_pi = predictions[...,i].unsqueeze(-1).expand(-1,-1,timeseries)
+            repeated_pj = predictions[...,j].unsqueeze(-1).expand(-1,-1,timeseries)
+            repeated_ri = realisations[...,i].unsqueeze(-1).expand(-1,timeseries)
+            repeated_rj = realisations[...,j].unsqueeze(-1).expand(-1,timeseries)
 
-                variogram_sum += float(((abs(repeated_ri - repeated_rj.T)**p - (abs(repeated_pi - repeated_pj.transpose(2,1))**p).mean(dim=0))**2).mean())
-                sum_elements += 1 
+            variogram_sum += float(((abs(repeated_ri - repeated_rj.T)**p - (abs(repeated_pi - repeated_pj.transpose(2,1))**p).mean(dim=0))**2).mean())
+            sum_elements += 1 
 
-            return variogram_sum / sum_elements
-        case _:
-            flat_p = predictions.flatten(start_dim=1)
-            flat_r = realisations.flatten()
+        return variogram_sum / sum_elements
+    else:
+        flat_p = predictions.flatten(start_dim=1)
+        flat_r = realisations.flatten()
 
-            repeated_p = predictions.unsqueeze(-1).expand(-1,-1,flat_p.shape[1])
-            repeated_r = realisations.unsqueeze(-1).expand(-1,flat_r.shape[0])
+        repeated_p = predictions.unsqueeze(-1).expand(-1,-1,flat_p.shape[1])
+        repeated_r = realisations.unsqueeze(-1).expand(-1,flat_r.shape[0])
 
-            return ((abs(repeated_r - repeated_r.T)**p - (abs(repeated_p - repeated_p.transpose(2,1))**p).mean(dim=0))**2).mean()
+        return ((abs(repeated_r - repeated_r.T)**p - (abs(repeated_p - repeated_p.transpose(2,1))**p).mean(dim=0))**2).mean()
 
 
 def crps(x: Tensor, y: float) -> float:

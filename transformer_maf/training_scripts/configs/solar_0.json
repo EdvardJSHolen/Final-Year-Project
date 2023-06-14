@@ -1,0 +1,17 @@
+{
+    "d_model": 128,
+    "dim_feedforward_scale": 1,
+    "num_heads": 8,
+    "num_encoder_layers": 1,
+    "num_decoder_layers": 3,
+    "dropout_rate": 0.1,
+    "n_blocks": 5,
+    "hidden_size": 32,
+    "n_hidden": 2,
+    "conditioning_length": 8,
+    "dequantize": true,
+    "context_length": 3,
+    "learning_rate": 0.01,
+    "gradient_clipping": 10.0,
+    "flow_type": "MAF"
+}

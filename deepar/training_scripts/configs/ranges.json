@@ -1,0 +1,9 @@
+[
+    ["num_layers", [1,2,3,4]],
+    ["num_cells", [30,40,60,100]],
+    ["likelihood", ["gaussian","student-T"]],
+    ["dropout_rate", [0,0.1,0.01]],
+    ["context_length", [1,2,3,4]],
+    ["learning_rate", [1e-4,1e-3,1e-2,1e-1]],
+    ["epochs", [10,50,200,500]]
+]

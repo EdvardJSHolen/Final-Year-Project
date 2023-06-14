@@ -12,5 +12,6 @@
     ["dequantize", [false,true]],
     ["context_length", [1,2,3]],
     ["learning_rate", [1e-4,1e-3,1e-2]],
-    ["gradient_clipping", [1e1,1e2,1e4]]
+    ["gradient_clipping", [1e1,1e2,1e4]],
+    ["flow_type",["MAF","RealNVP"]]
 ]

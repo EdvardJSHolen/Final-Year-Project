@@ -1,0 +1,12 @@
+{
+    "num_layers": 3,
+    "num_cells": 60,
+    "dropout": 0.1,
+    "diff_steps": 50,
+    "beta_schedule": "quad",
+    "residual_layers": 4,
+    "scaling": true,
+    "context_length": 1,
+    "learning_rate": 0.0001,
+    "gradient_clipping": 10000.0
+}

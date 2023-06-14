@@ -95,7 +95,7 @@ def main():
                 target_dim=train_data.shape[1],
                 prediction_length=prediction_length,
                 context_length=parameters["context_length"]*prediction_length,
-                input_size=40,
+                input_size=38,
                 freq="D",
                 scaling=parameters["scaling"],
                 diff_steps=parameters["diff_steps"],

@@ -8,7 +8,9 @@ export NUM_PROCESSES="10"
 export CONFIG_PATH="configs/transformermaf_0.json" 
 
 module load anaconda3/personal
+source activate py38
 
 cd $HOME/Final-Year-Project/transformer_maf/training_scripts
+poetry shell
 poetry update
 poetry run python electricity.py

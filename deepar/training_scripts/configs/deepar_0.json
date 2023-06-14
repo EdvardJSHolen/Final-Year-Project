@@ -1,0 +1,452 @@
+[
+    {
+        "num_layers": 4,
+        "num_cells": 30,
+        "likelihood": "student-T",
+        "dropout_rate": 0.01,
+        "context_length": 1,
+        "learning_rate": 0.0001,
+        "epochs": 200
+    },
+    {
+        "num_layers": 2,
+        "num_cells": 40,
+        "likelihood": "student-T",
+        "dropout_rate": 0.01,
+        "context_length": 4,
+        "learning_rate": 0.0001,
+        "epochs": 200
+    },
+    {
+        "num_layers": 4,
+        "num_cells": 60,
+        "likelihood": "gaussian",
+        "dropout_rate": 0.1,
+        "context_length": 4,
+        "learning_rate": 0.0001,
+        "epochs": 10
+    },
+    {
+        "num_layers": 2,
+        "num_cells": 60,
+        "likelihood": "gaussian",
+        "dropout_rate": 0,
+        "context_length": 3,
+        "learning_rate": 0.001,
+        "epochs": 50
+    },
+    {
+        "num_layers": 1,
+        "num_cells": 100,
+        "likelihood": "student-T",
+        "dropout_rate": 0.1,
+        "context_length": 4,
+        "learning_rate": 0.01,
+        "epochs": 200
+    },
+    {
+        "num_layers": 1,
+        "num_cells": 100,
+        "likelihood": "gaussian",
+        "dropout_rate": 0.1,
+        "context_length": 2,
+        "learning_rate": 0.01,
+        "epochs": 200
+    },
+    {
+        "num_layers": 2,
+        "num_cells": 40,
+        "likelihood": "student-T",
+        "dropout_rate": 0.1,
+        "context_length": 3,
+        "learning_rate": 0.0001,
+        "epochs": 200
+    },
+    {
+        "num_layers": 1,
+        "num_cells": 40,
+        "likelihood": "student-T",
+        "dropout_rate": 0.01,
+        "context_length": 2,
+        "learning_rate": 0.01,
+        "epochs": 50
+    },
+    {
+        "num_layers": 1,
+        "num_cells": 30,
+        "likelihood": "gaussian",
+        "dropout_rate": 0.01,
+        "context_length": 1,
+        "learning_rate": 0.01,
+        "epochs": 200
+    },
+    {
+        "num_layers": 2,
+        "num_cells": 40,
+        "likelihood": "student-T",
+        "dropout_rate": 0.1,
+        "context_length": 3,
+        "learning_rate": 0.1,
+        "epochs": 50
+    },
+    {
+        "num_layers": 4,
+        "num_cells": 60,
+        "likelihood": "gaussian",
+        "dropout_rate": 0.01,
+        "context_length": 2,
+        "learning_rate": 0.0001,
+        "epochs": 500
+    },
+    {
+        "num_layers": 2,
+        "num_cells": 100,
+        "likelihood": "student-T",
+        "dropout_rate": 0.1,
+        "context_length": 3,
+        "learning_rate": 0.0001,
+        "epochs": 50
+    },
+    {
+        "num_layers": 3,
+        "num_cells": 40,
+        "likelihood": "gaussian",
+        "dropout_rate": 0,
+        "context_length": 4,
+        "learning_rate": 0.01,
+        "epochs": 200
+    },
+    {
+        "num_layers": 1,
+        "num_cells": 40,
+        "likelihood": "student-T",
+        "dropout_rate": 0.01,
+        "context_length": 4,
+        "learning_rate": 0.01,
+        "epochs": 10
+    },
+    {
+        "num_layers": 1,
+        "num_cells": 40,
+        "likelihood": "gaussian",
+        "dropout_rate": 0,
+        "context_length": 1,
+        "learning_rate": 0.01,
+        "epochs": 50
+    },
+    {
+        "num_layers": 1,
+        "num_cells": 60,
+        "likelihood": "student-T",
+        "dropout_rate": 0.01,
+        "context_length": 4,
+        "learning_rate": 0.01,
+        "epochs": 10
+    },
+    {
+        "num_layers": 1,
+        "num_cells": 60,
+        "likelihood": "gaussian",
+        "dropout_rate": 0,
+        "context_length": 1,
+        "learning_rate": 0.01,
+        "epochs": 10
+    },
+    {
+        "num_layers": 2,
+        "num_cells": 60,
+        "likelihood": "gaussian",
+        "dropout_rate": 0.01,
+        "context_length": 1,
+        "learning_rate": 0.001,
+        "epochs": 500
+    },
+    {
+        "num_layers": 1,
+        "num_cells": 40,
+        "likelihood": "gaussian",
+        "dropout_rate": 0.1,
+        "context_length": 2,
+        "learning_rate": 0.001,
+        "epochs": 50
+    },
+    {
+        "num_layers": 3,
+        "num_cells": 60,
+        "likelihood": "gaussian",
+        "dropout_rate": 0.1,
+        "context_length": 2,
+        "learning_rate": 0.1,
+        "epochs": 200
+    },
+    {
+        "num_layers": 1,
+        "num_cells": 30,
+        "likelihood": "student-T",
+        "dropout_rate": 0,
+        "context_length": 1,
+        "learning_rate": 0.1,
+        "epochs": 500
+    },
+    {
+        "num_layers": 3,
+        "num_cells": 30,
+        "likelihood": "gaussian",
+        "dropout_rate": 0.1,
+        "context_length": 4,
+        "learning_rate": 0.0001,
+        "epochs": 500
+    },
+    {
+        "num_layers": 4,
+        "num_cells": 30,
+        "likelihood": "student-T",
+        "dropout_rate": 0.1,
+        "context_length": 1,
+        "learning_rate": 0.1,
+        "epochs": 10
+    },
+    {
+        "num_layers": 1,
+        "num_cells": 100,
+        "likelihood": "gaussian",
+        "dropout_rate": 0.1,
+        "context_length": 3,
+        "learning_rate": 0.01,
+        "epochs": 50
+    },
+    {
+        "num_layers": 2,
+        "num_cells": 60,
+        "likelihood": "gaussian",
+        "dropout_rate": 0.1,
+        "context_length": 1,
+        "learning_rate": 0.01,
+        "epochs": 10
+    },
+    {
+        "num_layers": 3,
+        "num_cells": 60,
+        "likelihood": "student-T",
+        "dropout_rate": 0,
+        "context_length": 3,
+        "learning_rate": 0.1,
+        "epochs": 500
+    },
+    {
+        "num_layers": 1,
+        "num_cells": 100,
+        "likelihood": "student-T",
+        "dropout_rate": 0,
+        "context_length": 3,
+        "learning_rate": 0.001,
+        "epochs": 10
+    },
+    {
+        "num_layers": 4,
+        "num_cells": 30,
+        "likelihood": "gaussian",
+        "dropout_rate": 0.1,
+        "context_length": 3,
+        "learning_rate": 0.01,
+        "epochs": 500
+    },
+    {
+        "num_layers": 1,
+        "num_cells": 30,
+        "likelihood": "student-T",
+        "dropout_rate": 0,
+        "context_length": 1,
+        "learning_rate": 0.1,
+        "epochs": 50
+    },
+    {
+        "num_layers": 4,
+        "num_cells": 60,
+        "likelihood": "student-T",
+        "dropout_rate": 0,
+        "context_length": 1,
+        "learning_rate": 0.01,
+        "epochs": 200
+    },
+    {
+        "num_layers": 2,
+        "num_cells": 60,
+        "likelihood": "gaussian",
+        "dropout_rate": 0.01,
+        "context_length": 4,
+        "learning_rate": 0.1,
+        "epochs": 200
+    },
+    {
+        "num_layers": 1,
+        "num_cells": 60,
+        "likelihood": "student-T",
+        "dropout_rate": 0.1,
+        "context_length": 1,
+        "learning_rate": 0.01,
+        "epochs": 10
+    },
+    {
+        "num_layers": 3,
+        "num_cells": 30,
+        "likelihood": "student-T",
+        "dropout_rate": 0,
+        "context_length": 3,
+        "learning_rate": 0.1,
+        "epochs": 50
+    },
+    {
+        "num_layers": 1,
+        "num_cells": 40,
+        "likelihood": "gaussian",
+        "dropout_rate": 0,
+        "context_length": 2,
+        "learning_rate": 0.001,
+        "epochs": 200
+    },
+    {
+        "num_layers": 3,
+        "num_cells": 100,
+        "likelihood": "student-T",
+        "dropout_rate": 0.01,
+        "context_length": 3,
+        "learning_rate": 0.01,
+        "epochs": 50
+    },
+    {
+        "num_layers": 1,
+        "num_cells": 100,
+        "likelihood": "gaussian",
+        "dropout_rate": 0,
+        "context_length": 1,
+        "learning_rate": 0.001,
+        "epochs": 500
+    },
+    {
+        "num_layers": 3,
+        "num_cells": 100,
+        "likelihood": "student-T",
+        "dropout_rate": 0.1,
+        "context_length": 3,
+        "learning_rate": 0.001,
+        "epochs": 500
+    },
+    {
+        "num_layers": 4,
+        "num_cells": 60,
+        "likelihood": "gaussian",
+        "dropout_rate": 0.1,
+        "context_length": 2,
+        "learning_rate": 0.0001,
+        "epochs": 50
+    },
+    {
+        "num_layers": 3,
+        "num_cells": 100,
+        "likelihood": "gaussian",
+        "dropout_rate": 0,
+        "context_length": 4,
+        "learning_rate": 0.1,
+        "epochs": 200
+    },
+    {
+        "num_layers": 4,
+        "num_cells": 30,
+        "likelihood": "gaussian",
+        "dropout_rate": 0.01,
+        "context_length": 1,
+        "learning_rate": 0.01,
+        "epochs": 200
+    },
+    {
+        "num_layers": 3,
+        "num_cells": 60,
+        "likelihood": "gaussian",
+        "dropout_rate": 0.01,
+        "context_length": 2,
+        "learning_rate": 0.001,
+        "epochs": 200
+    },
+    {
+        "num_layers": 3,
+        "num_cells": 100,
+        "likelihood": "gaussian",
+        "dropout_rate": 0.1,
+        "context_length": 1,
+        "learning_rate": 0.1,
+        "epochs": 200
+    },
+    {
+        "num_layers": 2,
+        "num_cells": 40,
+        "likelihood": "student-T",
+        "dropout_rate": 0,
+        "context_length": 3,
+        "learning_rate": 0.001,
+        "epochs": 50
+    },
+    {
+        "num_layers": 3,
+        "num_cells": 100,
+        "likelihood": "student-T",
+        "dropout_rate": 0,
+        "context_length": 2,
+        "learning_rate": 0.001,
+        "epochs": 10
+    },
+    {
+        "num_layers": 3,
+        "num_cells": 100,
+        "likelihood": "gaussian",
+        "dropout_rate": 0.01,
+        "context_length": 3,
+        "learning_rate": 0.1,
+        "epochs": 200
+    },
+    {
+        "num_layers": 4,
+        "num_cells": 30,
+        "likelihood": "student-T",
+        "dropout_rate": 0,
+        "context_length": 2,
+        "learning_rate": 0.0001,
+        "epochs": 10
+    },
+    {
+        "num_layers": 1,
+        "num_cells": 100,
+        "likelihood": "student-T",
+        "dropout_rate": 0.01,
+        "context_length": 4,
+        "learning_rate": 0.001,
+        "epochs": 10
+    },
+    {
+        "num_layers": 4,
+        "num_cells": 40,
+        "likelihood": "gaussian",
+        "dropout_rate": 0.1,
+        "context_length": 2,
+        "learning_rate": 0.1,
+        "epochs": 500
+    },
+    {
+        "num_layers": 4,
+        "num_cells": 30,
+        "likelihood": "gaussian",
+        "dropout_rate": 0,
+        "context_length": 3,
+        "learning_rate": 0.0001,
+        "epochs": 200
+    },
+    {
+        "num_layers": 3,
+        "num_cells": 60,
+        "likelihood": "student-T",
+        "dropout_rate": 0.1,
+        "context_length": 1,
+        "learning_rate": 0.1,
+        "epochs": 500
+    }
+]

@@ -1,0 +1,17 @@
+{
+    "d_model": 32,
+    "dim_feedforward_scale": 4,
+    "num_heads": 4,
+    "num_encoder_layers": 3,
+    "num_decoder_layers": 5,
+    "dropout_rate": 0.01,
+    "n_blocks": 3,
+    "hidden_size": 128,
+    "n_hidden": 2,
+    "conditioning_length": 128,
+    "dequantize": false,
+    "context_length": 2,
+    "learning_rate": 0.01,
+    "gradient_clipping": 100.0,
+    "flow_type": "RealNVP"
+}

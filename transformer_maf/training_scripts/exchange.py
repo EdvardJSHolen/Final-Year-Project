@@ -86,77 +86,95 @@ def main():
         
         for trial_number in range(5):
             print(f"Trial number: {trial_number}")
-
-            # Time at start of training
-            trial_start = time.time()
             
-            estimator = TransformerTempFlowEstimator(
-                input_size=40,
-                target_dim=train_data.shape[1],
-                prediction_length=prediction_length,
-                flow_type='MAF',
-                freq="D",
-                d_model=parameters["d_model"],
-                dim_feedforward_scale=parameters["dim_feedforward_scale"],
-                num_heads=parameters["num_heads"],
-                num_encoder_layers=parameters["num_encoder_layers"],
-                num_decoder_layers=parameters["num_decoder_layers"],
-                dropout_rate=parameters["dropout_rate"],
-                n_blocks=parameters["n_blocks"],
-                hidden_size=parameters["hidden_size"],
-                n_hidden=parameters["n_hidden"],
-                conditioning_length=parameters["conditioning_length"],
-                dequantize=parameters["dequantize"],
-                context_length=parameters["context_length"]*prediction_length,
-                trainer = Trainer(
-                    device=device,
-                    learning_rate=parameters["learning_rate"],
-                    clip_gradient = parameters["gradient_clipping"]
+            try:
+
+                # Time at start of training
+                trial_start = time.time()
+
+                estimator = TransformerTempFlowEstimator(
+                    input_size=38,
+                    target_dim=train_data.shape[1],
+                    prediction_length=prediction_length,
+                    flow_type=parameters["flow_type"],
+                    freq="D",
+                    d_model=parameters["d_model"],
+                    dim_feedforward_scale=parameters["dim_feedforward_scale"],
+                    num_heads=parameters["num_heads"],
+                    num_encoder_layers=parameters["num_encoder_layers"],
+                    num_decoder_layers=parameters["num_decoder_layers"],
+                    dropout_rate=parameters["dropout_rate"],
+                    n_blocks=parameters["n_blocks"],
+                    hidden_size=parameters["hidden_size"],
+                    n_hidden=parameters["n_hidden"],
+                    conditioning_length=parameters["conditioning_length"],
+                    dequantize=parameters["dequantize"],
+                    context_length=parameters["context_length"]*prediction_length,
+                    trainer = Trainer(
+                        device=device,
+                        learning_rate=parameters["learning_rate"],
+                        clip_gradient = parameters["gradient_clipping"]
+                    )
                 )
-            )
 
-            predictor = estimator.train(training_data=train_dataset, num_workers=3)
-            
-            forecast_it, ts_it = make_evaluation_predictions(
-                dataset=val_dataset_14,
-                predictor=predictor,
-                num_samples=128
-            )
+                predictor = estimator.train(training_data=train_dataset, num_workers=3)
 
-            samples = list(forecast_it)
-            realisations = list(ts_it)
+                forecast_it, ts_it = make_evaluation_predictions(
+                    dataset=val_dataset_14,
+                    predictor=predictor,
+                    num_samples=128
+                )
 
-            samples = torch.tensor([sample.samples for sample in samples]).permute(0,1,3,2)
-            realisations = torch.tensor([real.values[-prediction_length:] for real in realisations]).permute(0,2,1)
+                samples = list(forecast_it)
+                realisations = list(ts_it)
 
-            # Calculate metrics
-            mean_predictions = samples.mean(axis=1)
+                samples = torch.tensor([sample.samples for sample in samples]).permute(0,1,3,2)
+                realisations = torch.tensor([real.values[-prediction_length:] for real in realisations]).permute(0,2,1)
 
-            # MSE, MAE, MDAE
-            mse = mean_squared_error(realisations.flatten(), mean_predictions.flatten())
-            mae = mean_absolute_error(realisations.flatten(), mean_predictions.flatten())
-            mdae = median_absolute_error(realisations.flatten(), mean_predictions.flatten())
+                # Calculate metrics
+                mean_predictions = samples.mean(axis=1)
 
-            # CRPS_sum and Variogram_score
-            crps_sum = np.mean([metrics.crps_sum(samples[i], realisations[i]) for i in range(realisations.shape[0])])
-            variogram_score = np.mean([metrics.variogram_score(samples[i], realisations[i], weights="local", window_size=2) for i in range(realisations.shape[0])])
+                # MSE, MAE, MDAE
+                mse = mean_squared_error(realisations.flatten(), mean_predictions.flatten())
+                mae = mean_absolute_error(realisations.flatten(), mean_predictions.flatten())
+                mdae = median_absolute_error(realisations.flatten(), mean_predictions.flatten())
 
-            # Store data in dataframe
-            results.loc[results.shape[0]] = {
-                **parameters,
-                "trial_number" : trial_number,
-                "trial_start" : trial_start,
-                "trial_end" : time.time(),
-                "validation_mse": mse,
-                "validation_mae": mae,
-                "validation_mdae":mdae ,
-                "validation_crps_sum": crps_sum,
-                "validation_variogram": variogram_score
-            }
+                # CRPS_sum and Variogram_score
+                crps_sum = np.mean([metrics.crps_sum(samples[i], realisations[i]) for i in range(realisations.shape[0])])
+                variogram_score = np.mean([metrics.variogram_score(samples[i], realisations[i], weights="local", window_size=2) for i in range(realisations.shape[0])])
 
-            # Save results in csv file
-            results.to_csv(f"results/exchange/{process_id}.csv", index=False)
-            
+                # Store data in dataframe
+                results.loc[results.shape[0]] = {
+                    **parameters,
+                    "trial_number" : trial_number,
+                    "trial_start" : trial_start,
+                    "trial_end" : time.time(),
+                    "validation_mse": mse,
+                    "validation_mae": mae,
+                    "validation_mdae":mdae ,
+                    "validation_crps_sum": crps_sum,
+                    "validation_variogram": variogram_score
+                }
+
+                # Save results in csv file
+                results.to_csv(f"results/exchange/{process_id}.csv", index=False)
+            except:
+                # Store data in dataframe
+                results.loc[results.shape[0]] = {
+                    **parameters,
+                    "trial_number" : trial_number,
+                    "trial_start" : trial_start,
+                    "trial_end" : time.time(),
+                    "validation_mse": np.nan,
+                    "validation_mae": np.nan,
+                    "validation_mdae": np.nan ,
+                    "validation_crps_sum": np.nan,
+                    "validation_variogram": np.nan
+                }
+
+                # Save results in csv file
+                results.to_csv(f"results/exchange/{process_id}.csv", index=False)
+
             # Check if we should kill this process
             if os.path.isfile("results/exchange/stop.txt"):
                 exit()
