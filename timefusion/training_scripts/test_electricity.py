@@ -69,6 +69,8 @@ def main():
             "trial_start",
             "trial_end",
             *list(parameters.keys()),
+            "anchor_strength",
+            "anchor_type",
             "validation_mse",
             "validation_mae",
             "validation_mdae",
@@ -88,7 +90,7 @@ def main():
     val_loader, val_dataset = get_data_loader(val_data, parameters["context_length"]*prediction_length)
     test_loader, test_dataset = get_data_loader(test_data, parameters["context_length"]*prediction_length)
 
-    for trial_number in range(5):
+    for trial_number in range(10):
         print(f"Trial number: {trial_number}")
 
         # Time at start of training
@@ -120,88 +122,106 @@ def main():
             optimizer = optimizer,
             lr_scheduler= lr_scheduler,
             early_stopper=EarlyStopper(patience=200),
-            #disable_progress_bar = True,
-        )
-
-        # Validation anchors
-        last_idx = val_dataset.tensor_data.shape[0] - prediction_length - parameters["context_length"]*prediction_length
-        indices = list(range(last_idx, last_idx - prediction_length*14, -prediction_length))
-        max_anchors = []
-        min_anchors = []
-        for idx in indices:
-            off_idx = idx + parameters["context_length"]*prediction_length
-            max_values = full_data.loc[full_data.index < val_data.index[off_idx]].max(axis=0)
-            min_values = full_data.loc[full_data.index < val_data.index[off_idx]].min(axis=0)
-            mean_values = full_data.loc[full_data.index < val_data.index[off_idx]].mean(axis=0)
-            max_anchors.append(1.1*torch.tensor(max_values,dtype=torch.float32,device=device) - 0.1*torch.tensor(mean_values,dtype=torch.float32,device=device))
-            min_anchors.append(1.1*torch.tensor(min_values,dtype=torch.float32,device=device) - 0.1*torch.tensor(mean_values,dtype=torch.float32,device=device))
-
-        max_anchors = torch.stack(max_anchors)
-        min_anchors = torch.stack(min_anchors)
-        anchors = torch.stack([min_anchors,max_anchors],dim = -1).unsqueeze(2).repeat((1,1,prediction_length,1))
-
-
-        # Validation
-        val_metrics = performance(
-            predictor = predictor,
-            data = val_dataset,
-            indices = indices,
-            anchors = anchors,
-            anchor_strength=parameters["anchor_strength"],
-            prediction_length=prediction_length,
-            parameters=parameters,
+            disable_progress_bar = True,
         )
         
-        # Test anchors
-        last_idx = test_dataset.tensor_data.shape[0] - prediction_length - parameters["context_length"]*prediction_length
-        indices = list(range(last_idx, last_idx - prediction_length*14, -prediction_length))
-        max_anchors = []
-        min_anchors = []
-        for idx in indices:
-            off_idx = idx + parameters["context_length"]*prediction_length
-            max_values = full_data.loc[full_data.index < test_data.index[off_idx]].max(axis=0)
-            min_values = full_data.loc[full_data.index < test_data.index[off_idx]].min(axis=0)
-            mean_values = full_data.loc[full_data.index < test_data.index[off_idx]].mean(axis=0)
-            max_anchors.append(1.1*torch.tensor(max_values,dtype=torch.float32,device=device) - 0.1*torch.tensor(mean_values,dtype=torch.float32,device=device))
-            min_anchors.append(1.1*torch.tensor(min_values,dtype=torch.float32,device=device) - 0.1*torch.tensor(mean_values,dtype=torch.float32,device=device))
+        for anchor_type in ["full","limited"]:
+            for anchor_strength in [0,parameters["anchor_strength"]]:
 
-        max_anchors = torch.stack(max_anchors)
-        min_anchors = torch.stack(min_anchors)
-        anchors = torch.stack([min_anchors,max_anchors],dim = -1).unsqueeze(2).repeat((1,1,prediction_length,1))
+                # Validation anchors
+                last_idx = val_dataset.tensor_data.shape[0] - prediction_length - parameters["context_length"]*prediction_length
+                indices = list(range(last_idx, last_idx - prediction_length*14, -prediction_length))
+                max_anchors = []
+                min_anchors = []
+                for idx in indices:
+                    off_idx = idx + parameters["context_length"]*prediction_length
 
+                    if anchor_type == "full":
+                        max_values = full_data.loc[full_data.index < val_data.index[off_idx]].max(axis=0)
+                        min_values = full_data.loc[full_data.index < val_data.index[off_idx]].min(axis=0)
+                        mean_values = full_data.loc[full_data.index < val_data.index[off_idx]].mean(axis=0)
+                    else:
+                        max_values = full_data.loc[full_data.index < val_data.index[off_idx]].iloc[-30*prediction_length:].max(axis=0)
+                        min_values = full_data.loc[full_data.index < val_data.index[off_idx]].iloc[-30*prediction_length:].min(axis=0)
+                        mean_values = full_data.loc[full_data.index < val_data.index[off_idx]].iloc[-30*prediction_length:].mean(axis=0)
 
-        # Test
-        test_metrics = performance(
-            predictor = predictor,
-            data = test_dataset,
-            indices = indices,
-            anchors = anchors,
-            anchor_strength=parameters["anchor_strength"],
-            prediction_length=prediction_length,
-            parameters=parameters,
-        )
+                    max_anchors.append(1.1*torch.tensor(max_values,dtype=torch.float32,device=device) - 0.1*torch.tensor(mean_values,dtype=torch.float32,device=device))
+                    min_anchors.append(1.1*torch.tensor(min_values,dtype=torch.float32,device=device) - 0.1*torch.tensor(mean_values,dtype=torch.float32,device=device))
+
+                max_anchors = torch.stack(max_anchors)
+                min_anchors = torch.stack(min_anchors)
+                anchors = torch.stack([min_anchors,max_anchors],dim = -1).unsqueeze(2).repeat((1,1,prediction_length,1))
 
 
-        # Store data in dataframe
-        results.loc[results.shape[0]] = {
-            **parameters,
-            "trial_number" : trial_number,
-            "trial_start" : trial_start,
-            "trial_end" : time.time(),
-            "validation_mse": val_metrics["mse"],
-            "validation_mae": val_metrics["mae"],
-            "validation_mdae":val_metrics["mdae"] ,
-            "validation_crps_sum": val_metrics["crps_sum"],
-            "validation_variogram": val_metrics["variogram_score"],
-            "test_mse": test_metrics["mse"],
-            "test_mae": test_metrics["mae"],
-            "test_mdae": test_metrics["mdae"],
-            "test_crps_sum": test_metrics["crps_sum"],
-            "test_variogram": test_metrics["variogram_score"]
-        }
+                # Validation
+                val_metrics = performance(
+                    predictor = predictor,
+                    data = val_dataset,
+                    indices = indices,
+                    anchors = anchors,
+                    anchor_strength=anchor_strength,
+                    prediction_length=prediction_length,
+                    parameters=parameters,
+                )
 
-        # Save results in csv file
-        results.to_csv(f"results/test_electricity.csv", index=False)
+                # Test anchors
+                last_idx = test_dataset.tensor_data.shape[0] - prediction_length - parameters["context_length"]*prediction_length
+                indices = list(range(last_idx, last_idx - prediction_length*14, -prediction_length))
+                max_anchors = []
+                min_anchors = []
+                for idx in indices:
+                    off_idx = idx + parameters["context_length"]*prediction_length
+                    if anchor_type == "full":
+                        max_values = full_data.loc[full_data.index < test_data.index[off_idx]].max(axis=0)
+                        min_values = full_data.loc[full_data.index < test_data.index[off_idx]].min(axis=0)
+                        mean_values = full_data.loc[full_data.index < test_data.index[off_idx]].mean(axis=0)
+                    else:
+                        max_values = full_data.loc[full_data.index < test_data.index[off_idx]].iloc[-30*prediction_length:].max(axis=0)
+                        min_values = full_data.loc[full_data.index < test_data.index[off_idx]].iloc[-30*prediction_length:].min(axis=0)
+                        mean_values = full_data.loc[full_data.index < test_data.index[off_idx]].iloc[-30*prediction_length:].mean(axis=0)
+
+                    max_anchors.append(1.1*torch.tensor(max_values,dtype=torch.float32,device=device) - 0.1*torch.tensor(mean_values,dtype=torch.float32,device=device))
+                    min_anchors.append(1.1*torch.tensor(min_values,dtype=torch.float32,device=device) - 0.1*torch.tensor(mean_values,dtype=torch.float32,device=device))
+
+                max_anchors = torch.stack(max_anchors)
+                min_anchors = torch.stack(min_anchors)
+                anchors = torch.stack([min_anchors,max_anchors],dim = -1).unsqueeze(2).repeat((1,1,prediction_length,1))
+
+
+                # Test
+                test_metrics = performance(
+                    predictor = predictor,
+                    data = test_dataset,
+                    indices = indices,
+                    anchors = anchors,
+                    anchor_strength=anchor_strength,
+                    prediction_length=prediction_length,
+                    parameters=parameters,
+                )
+
+
+                # Store data in dataframe
+                results.loc[results.shape[0]] = {
+                    **parameters,
+                    "trial_number" : trial_number,
+                    "trial_start" : trial_start,
+                    "trial_end" : time.time(),
+                    "anchor_strength": anchor_strength,
+                    "anchor_type": anchor_type,
+                    "validation_mse": val_metrics["mse"],
+                    "validation_mae": val_metrics["mae"],
+                    "validation_mdae":val_metrics["mdae"] ,
+                    "validation_crps_sum": val_metrics["crps_sum"],
+                    "validation_variogram": val_metrics["variogram_score"],
+                    "test_mse": test_metrics["mse"],
+                    "test_mae": test_metrics["mae"],
+                    "test_mdae": test_metrics["mdae"],
+                    "test_crps_sum": test_metrics["crps_sum"],
+                    "test_variogram": test_metrics["variogram_score"]
+                }
+
+                # Save results in csv file
+                results.to_csv(f"results/test_electricity_anchor.csv", index=False)
             
 
 if __name__ == "__main__":

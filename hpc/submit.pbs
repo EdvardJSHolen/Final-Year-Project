@@ -1,10 +1,10 @@
 #PBS -l walltime=07:00:00
 #PBS -l select=1:ncpus=8:mem=24gb:ngpus=1:gpu_type=RTX6000
-#PBS -N exchange
+#PBS -N electricity
 
-export CONFIG_PATH="configs/exchange_0.json" 
+export CONFIG_PATH="configs/electricity_0.json" 
 
 module load anaconda3/personal
 
 cd $HOME/Final-Year-Project/timefusion/training_scripts
-python3 test_exchange.py
+python3 test_electricity.py

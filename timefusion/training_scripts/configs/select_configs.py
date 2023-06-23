@@ -5,7 +5,7 @@ from typing import Dict, Any
 
 num_trials = 50
 random_seed = 0
-config_name = f"timefusion2_{random_seed}"
+config_name = f"timefusion3_{random_seed}"
 
 def get_hyperparameters(ranges: Dict[str,Any], parameter_id: int) -> Dict[str,Any]:
     """
@@ -20,7 +20,7 @@ def get_hyperparameters(ranges: Dict[str,Any], parameter_id: int) -> Dict[str,An
 
 
 # Get ranges from json file
-ranges = json.load(open(f"ranges2.json","r"))
+ranges = json.load(open(f"ranges3.json","r"))
 
 # Randomly select combinations to test
 random.seed(random_seed)

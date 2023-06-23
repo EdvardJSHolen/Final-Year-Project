@@ -44,9 +44,10 @@ class ScaleLayer(nn.Module):
     def __init__(self, dim: int, device: torch.device):
         super().__init__()
         self.scales = torch.nn.Parameter(torch.empty(dim,device=device))
+        self.bias = torch.nn.Parameter(torch.empty(dim,device=device))
 
     def forward(self, x: Tensor) -> Tensor:
-        return x * self.scales
+        return x * self.scales + self.bias
     
 
 class ResidualBlock(nn.Module):
@@ -57,7 +58,7 @@ class ResidualBlock(nn.Module):
         self.linear1 = nn.Linear(residual_size, hidden_size, device = device)
         self.relu = nn.ReLU()
         self.linear2 = nn.Linear(hidden_size, residual_size, device=device)
-        #self.tanh = nn.Tanh()
+        self.tanh = nn.Tanh()
 
     def forward(self, x: Tensor) -> Tensor:
         
@@ -65,8 +66,8 @@ class ResidualBlock(nn.Module):
         x_ = self.linear1(x)
         x_ = self.relu(x_)
         x_ = self.linear2(x_)
-        #x = self.tanh(x + x_)
-        x = x + x_
+        x = self.tanh(x + x_)
+        #x = x + x_
         return x
 
 
@@ -127,7 +128,7 @@ class EpsilonTheta(nn.Module):
             layers.append(ScaleLayer(residual_size, device = device))
         else:
             layers.append(nn.Linear(residual_size, residual_size, device = device))
-        layers.pop()
+        #layers.pop()
 
         for _ in range(residual_layers):
             layers.append(ResidualBlock(residual_size, residual_hidden, device))

@@ -184,7 +184,7 @@ def main():
         }
 
         # Save results in csv file
-        results.to_csv(f"results/test_solar.csv", index=False)
+        results.to_csv(f"results/test_solar2.csv", index=False)
             
 
 if __name__ == "__main__":
