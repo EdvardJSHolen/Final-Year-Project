@@ -1,0 +1,9 @@
+{
+    "num_layers": 1,
+    "num_cells": 100,
+    "likelihood": "student-T",
+    "dropout_rate": 0.1,
+    "context_length": 4,
+    "learning_rate": 0.01,
+    "epochs": 200
+}

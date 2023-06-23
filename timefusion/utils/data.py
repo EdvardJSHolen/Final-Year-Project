@@ -14,6 +14,12 @@ class TimeFusionDataset(Dataset):
         context_length: int,
         pred_columns: List[int] = None,
     ):
+        """
+        Args:
+            data: Pandas dataframe with time-series and covariates as columns
+            context_length: Number of past time steps to use as context
+            pred_columns: The numerical columns indices to use as prediction targets
+        """
         
         # Make a copy of the dataframe
         self.data = data.copy()
@@ -45,6 +51,11 @@ class TimeFusionDataset(Dataset):
         ]
     ) -> None:
         
+        """
+        Args:
+            timestamp_encodings: List of encoding functions to apply to the timestamp index
+        """
+        
         # Add columns of encodings
         for encoding in timestamp_encodings:
             self.data.insert(self.data.shape[1], self.data.shape[1], [encoding(x) for x in self.data.index])
@@ -55,15 +66,22 @@ class TimeFusionDataset(Dataset):
         # Update list of covariate columns
         self.cov_columns = list(set(self.data.columns) - set(self.pred_columns))
 
-    def get_sample_tensor(self, idx: int) -> Tensor:
-        context = self.tensor_data[idx:idx + self.context_length, self.pred_columns].T.detach().clone()
-        covariates = self.tensor_data[idx:idx + self.context_length, self.cov_columns].T.detach().clone()
-        return context, covariates
-
     def __len__(self) -> int:
+        """
+        Returns:
+            Number of samples in the dataset
+        """
+
         return max(0, self.tensor_data.shape[0] - self.context_length - 1)
 
     def __getitem__(self, idx: int) -> Tensor:
+        """
+        Args:
+            idx: Index of the sample to return
+        Returns:
+            Tuple of context, covariates, and target Tensors
+        """
+        
         context = self.tensor_data[idx:idx + self.context_length, self.pred_columns].T.detach().clone()
         covariates = self.tensor_data[idx:idx + self.context_length, self.cov_columns].T.detach().clone()
         target = self.tensor_data[idx + self.context_length, self.pred_columns].detach().clone()

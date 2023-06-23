@@ -32,6 +32,7 @@ class DiffusionEmbedding(nn.Module):
         Returns:
             Tensor with shape [batch_size, out_dim] giving the diffusion embedding
         """
+        
         x = self.pe[x]
         x = self.linear1(x)
         x = self.tanh(x)
@@ -42,16 +43,30 @@ class DiffusionEmbedding(nn.Module):
 class ScaleLayer(nn.Module):
 
     def __init__(self, dim: int, device: torch.device):
+        """
+        Args:
+            dim: Size of input and output of scale layer
+            device: Device to use for computation
+        """
+
         super().__init__()
         self.scales = torch.nn.Parameter(torch.empty(dim,device=device))
+        self.bias = torch.nn.Parameter(torch.empty(dim,device=device))
 
     def forward(self, x: Tensor) -> Tensor:
-        return x * self.scales
+        return x * self.scales + self.bias
     
 
 class ResidualBlock(nn.Module):
 
     def __init__(self, residual_size: int, hidden_size: int, device: torch.device):
+        """
+        Args:
+            residual_size: Size of input and output of residual block
+            hidden_size: Size of hidden layer in residual block
+            device: Device to use for computation
+        """
+
         super().__init__()
 
         self.linear1 = nn.Linear(residual_size, hidden_size, device = device)
@@ -65,6 +80,7 @@ class ResidualBlock(nn.Module):
         x_ = self.relu(x_)
         x_ = self.linear2(x_)
         x = self.tanh(x + x_)
+
         return x
 
 
@@ -78,10 +94,10 @@ class EpsilonTheta(nn.Module):
         rnn_hidden: int = 40,
         residual_layers: int = 2,
         residual_hidden: int = 100,
+        residual_scaler: bool = False,
         dropout: float = 0.0,
         diff_steps: int = 100,
         device: torch.device = torch.device("cpu"),
-        **kwargs
     ):
         """
         Args:
@@ -90,8 +106,9 @@ class EpsilonTheta(nn.Module):
             rnn_layers: Number of RNN layers
             rnn_hidden: Size of RNN hidden state
             residual_layers: Number of residual layers
-            residual_size: Size of input and output of residual layers
             residual_hidden: Size of hidden layer in residual layers
+            residual_scaler: Whether to use a scaler or a linear layer at the beginning the residual layers
+            dropout: Dropout rate of RNN network
             diff_steps: Number of diffusion steps
             device: Device to use for computation
         """
@@ -121,7 +138,7 @@ class EpsilonTheta(nn.Module):
         layers = []
 
         residual_size = rnn_hidden + output_size
-        if kwargs.get("residual_scaler", False):
+        if residual_scaler:
             layers.append(ScaleLayer(residual_size, device = device))
         else:
             layers.append(nn.Linear(residual_size, residual_size, device = device))
@@ -135,6 +152,14 @@ class EpsilonTheta(nn.Module):
 
         
     def forward(self, x: Tensor, n: Tensor, context: Tensor = None, h: Tensor = None) -> Tensor:
+
+        """
+        Args:
+            x: Tensor with shape [batch_size, time-series dimension] giving the diffused data
+            n: Tensor with shape [batch_size] giving the diffusion step indices
+            context: Tensor with shape [batch_size, time-series dimension, context_length] giving the context data
+            h: Tensor with shape [batch_size, rnn_layers, rnn_hidden] giving the hidden state as an alternative to context
+        """
 
         assert (not context is None) or (not h is None), "Either context or hidden state must be provided"
 

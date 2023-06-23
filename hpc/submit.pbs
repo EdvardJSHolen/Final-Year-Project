@@ -1,8 +1,10 @@
-#PBS -l walltime=00:30:00
-#PBS -l select=1:ncpus=4:mem=24gb:ngpus=1:gpu_type=RTX6000
+#PBS -l walltime=07:00:00
+#PBS -l select=1:ncpus=8:mem=24gb:ngpus=1:gpu_type=RTX6000
+#PBS -N electricity
+
+export CONFIG_PATH="configs/electricity_0.json" 
 
 module load anaconda3/personal
 
-cd $PBS_O_WORKDIR
-poetry update
-poetry run python tmp.py
+cd $HOME/Final-Year-Project/timefusion/training_scripts
+python3 test_electricity.py

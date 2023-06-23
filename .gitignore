@@ -7,3 +7,5 @@ weights*
 timefusion/training_scripts/log_files
 *checkpoint*
 *__pycache__*
+*log*
+*core*

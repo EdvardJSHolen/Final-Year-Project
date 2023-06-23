@@ -1,0 +1,12 @@
+#!/bin/bash
+#PBS -l walltime=12:00:00
+#PBS -l select=1:ncpus=4:mem=48gb:ngpus=1:gpu_type=RTX6000
+#PBS -N tgsolar
+
+export CONFIG_PATH="configs/solar_0.json" 
+
+module load anaconda3/personal
+
+cd $HOME/Final-Year-Project/timegrad/training_scripts
+poetry update
+poetry run python test_solar.py

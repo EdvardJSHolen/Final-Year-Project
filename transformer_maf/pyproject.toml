@@ -1,0 +1,31 @@
+[tool.poetry]
+name = "transformer-maf"
+version = "0.1.0"
+description = ""
+authors = ["Edvard J. Skaarberg Holen <edvard.holen19@imperial.ac.uk>"]
+readme = "README.md"
+packages = [{include = "transformer_maf"}]
+
+[tool.poetry.dependencies]
+python = "^3.8"
+pytorchts = "^0.6.0"
+numpy = "^1.24.3"
+gluonts = "0.9.0"
+#pytorch-lightning = "^1.9.0"
+#torch = "1.10.2"
+#ujson = "^5.7.0"
+ipykernel = "^6.23.1"
+#tqdm = "^4.65.0"
+ipywidgets = "^8.0.6"
+scikit-learn = "^1.2.2"
+#pytorch-lightning = "^2.0.2"
+#ipykernel = "^6.23.1"
+torch = "<1.11"
+#scikit-learn = "^1.2.2"
+ujson = "^5.7.0"
+tqdm = "^4.65.0"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

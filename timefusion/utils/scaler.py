@@ -44,6 +44,7 @@ class MeanScaler(nn.Module):
         Returns:
             x: Input Tensor scaled by stored scales
         """
+        
         if x.dim() == self.scales.dim():
             x *= self.scales
         else:

@@ -1,7 +1,7 @@
 #!/bin/bash
 #PBS -l walltime=36:00:00
 #PBS -l select=1:ncpus=4:mem=48gb:ngpus=1:gpu_type=RTX6000
-#PBS -N tgelectricity
+#PBS -N tgexchange
 #PBS -J 0-9
 
 export NUM_PROCESSES="10"
@@ -11,4 +11,4 @@ module load anaconda3/personal
 
 cd $HOME/Final-Year-Project/timegrad/training_scripts
 poetry update
-poetry run python electricity.py
+poetry run python exchange.py

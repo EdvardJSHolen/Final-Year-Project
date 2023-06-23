@@ -7,7 +7,7 @@ import time
 from torch import nn, Tensor, optim
 from torch.utils.data import DataLoader
 from torch.optim.lr_scheduler import _LRScheduler
-from typing import List, Callable, Optional, Dict, Iterable
+from typing import List, Callable, Optional, Dict
 from tqdm import tqdm
 
 # Relative imports
@@ -27,6 +27,7 @@ class TimeFusion(nn.Module):
         rnn_hidden: int = 40,
         residual_layers: int = 2,
         residual_hidden: int = 100,
+        residual_scaler: bool = False,
         dropout: float = 0.0,
         scaling: bool = False,
         diff_steps: int = 100,
@@ -34,6 +35,22 @@ class TimeFusion(nn.Module):
         device: torch.device = torch.device("cpu"),
         **kwargs
     ):
+        
+        """
+        Args:
+            input_size: Number of input features, i.e. time-series dimension + convariates dimension
+            output_size: Number of output features, i.e. time-series dimension
+            rnn_layers: Number of RNN layers
+            rnn_hidden: Size of RNN hidden state
+            residual_layers: Number of residual layers
+            residual_hidden: Size of hidden layer in residual layers
+            residual_scaler: Whether to use a scaler or a linear layer at the beginning the residual layers
+            scaling: Whether to scale data using a MeanScaler
+            dropout: Dropout rate of RNN network
+            diff_steps: Number of diffusion steps
+            betas: List of beta values for each step of the diffusion process
+            device: Device to use for computation
+        """
         
         super().__init__()
 
@@ -60,6 +77,7 @@ class TimeFusion(nn.Module):
             rnn_hidden = rnn_hidden,
             residual_layers = residual_layers,
             residual_hidden = residual_hidden,
+            residual_scaler = residual_scaler,
             dropout=dropout,
             diff_steps = diff_steps,
             device = device,
@@ -71,19 +89,35 @@ class TimeFusion(nn.Module):
         return self.epsilon_theta(x, n, context, h)
 
     def train_network(self,
-        epochs: int,
         train_loader: DataLoader, 
+        epochs: int = 200,
         val_loader: Optional[DataLoader] = None,
         val_metrics: Dict[str,Callable] = {},
         loss_function: Callable = nn.MSELoss(),
         optimizer: optim.Optimizer = None,
         lr_scheduler: _LRScheduler = None,
-        early_stopper: EarlyStopper = None,
+        early_stopper: EarlyStopper = EarlyStopper(patience = 200),
         save_weights: bool = False,
         weight_folder: str = "weights",
         restore_weights: bool = True,
         disable_progress_bar: bool = False,
     ):
+        """
+        Args:
+            train_loader: DataLoader for training data
+            epochs: Number of epochs to train
+            val_loader: DataLoader for validation data
+            val_metrics: Dictionary of validation metrics
+            loss_function: Loss function to use for training
+            optimizer: Optimizer to use for training
+            lr_scheduler: Learning rate scheduler to use for training
+            early_stopper: Early stopper to use for training
+            save_weights: Whether to save the weights of the model
+            weight_folder: Folder to save the weights of the model
+            restore_weights: Whether to restore the best weights of the model after training
+            disable_progress_bar: Whether to disable the progress bar
+        """
+
         # Set the network into training mode
         self.train(True)
 
@@ -179,10 +213,20 @@ class TimeFusion(nn.Module):
         indices: List[int],
         prediction_length: int,
         num_samples: int = 1,
-        batch_size: int = 64,
         anchors: Tensor = None,
         anchor_strength: float = 0.01,
+        **kwargs
     ):
+        
+        """
+        Args:
+            data: Dataset to take context and covariate data from
+            indices: List of indices of input data to use as starting point for prediction
+            prediction_length: Number of time-steps to predict into the future
+            num_samples: Number of samples to draw at each index
+            anchors: Anchors to use for sampling
+            anchor_strength: Strength of anchoring in denoising process
+        """
 
         # Enter evaluation mode
         self.train(False)
@@ -190,56 +234,56 @@ class TimeFusion(nn.Module):
         if anchors is not None:
             anchors = anchors.to(self.device)
         
-        samples = torch.empty((len(indices), num_samples,len(data.pred_columns),prediction_length), dtype = torch.float32, device = self.device)
+        samples = torch.empty((len(indices) * num_samples,len(data.pred_columns),prediction_length), dtype = torch.float32, device = self.device)
 
-        for i, idx in enumerate(indices):
-            for pred_idx in range(prediction_length):
-                for batch_idx in range(0, num_samples, batch_size):
+        for pred_idx in range(prediction_length):
 
-                    # Get context Tensor at index
-                    context, covariates = data.get_sample_tensor(idx + pred_idx)
-                    context = context.to(self.device)
-                    covariates = covariates.to(self.device)
+            # Get context and covariates Tensors
+            context = []
+            covariates = []
+            for idx in indices:
+                tmp_context, tmp_covariates, _ = data[idx + pred_idx]
+                context.append(tmp_context.unsqueeze(0).repeat(num_samples,1,1))
+                covariates.append(tmp_covariates.unsqueeze(0).repeat(num_samples,1,1))                
+            context = torch.concat(context, dim = 0).to(self.device)
+            covariates = torch.concat(covariates, dim = 0).to(self.device)
 
-                    # Repeat context, covariates and anchors to give correct batch size
-                    context = context.unsqueeze(0).repeat(min(num_samples - batch_idx,batch_size),1,1)
-                    covariates = covariates.unsqueeze(0).repeat(min(num_samples - batch_idx,batch_size),1,1)
-                    if anchors is not None:
-                        anchors_copy = anchors[i,:,pred_idx,:].unsqueeze(0).repeat(min(num_samples - batch_idx,batch_size),1,1).detach().clone()
+            if anchors is not None:
+                anchors_copy = anchors[...,pred_idx,:].unsqueeze(1).repeat(1,num_samples,1,1).flatten(start_dim=0,end_dim=1).detach().clone()
 
-                    # Replace existing data into Tensor
-                    if pred_idx > 0:
-                        context[...,-pred_idx:] = samples[i,batch_idx:batch_idx+context.shape[0],:,max(0,pred_idx - context.shape[2]):pred_idx]
+            # Replace existing data into Tensor
+            if pred_idx > 0:
+                context[...,-pred_idx:] = samples[...,max(0,pred_idx - context.shape[2]):pred_idx]
 
-                    if self.scaling:
-                        context = self.scaler(context)
-                        if anchors is not None:
-                            anchors_copy = self.scaler(anchors_copy, update_scales = False)
+            if self.scaling:
+                context = self.scaler(context)
+                if anchors is not None:
+                    anchors_copy = self.scaler(anchors_copy, update_scales = False)
 
 
-                    # Sample initial white noise
-                    x = self.diffuser.initial_noise(
-                        shape = context.shape[:-1]
-                    )
+            # Sample initial white noise
+            x = self.diffuser.initial_noise(
+                shape = context.shape[:-1]
+            )
 
-                    # Denoising loop
-                    h = None
-                    for n in range(self.diff_steps,0,-1):
+            # Denoising loop
+            h = None
+            for n in range(self.diff_steps,0,-1):
 
-                        epsilon, h = self.forward(x, torch.full(context.shape[:1],n,device=self.device), torch.concat((context,covariates), dim = 1), h)
+                epsilon, h = self.forward(x, torch.full(context.shape[:1],n,device=self.device), torch.concat((context,covariates), dim = 1), h)
 
-                        x = self.diffuser.denoise(
-                            x = x,
-                            epsilon = epsilon,
-                            n = n,
-                            anchors = anchors_copy if anchors is not None else None,
-                            anchor_strength = anchor_strength
-                        )
+                x = self.diffuser.denoise(
+                    x = x,
+                    epsilon = epsilon,
+                    n = n,
+                    anchors = anchors_copy if anchors is not None else None,
+                    anchor_strength = anchor_strength
+                )
 
-                    if self.scaling:
-                        x = self.scaler.unscale(x)
+            if self.scaling:
+                x = self.scaler.unscale(x)
 
-                    # Store denoised samples
-                    samples[i,batch_idx:batch_idx+context.shape[0],:,pred_idx] = x.detach().clone()
+            # Store denoised samples
+            samples[...,pred_idx] = x.detach().clone()
 
-        return samples
+        return samples.reshape((len(indices), num_samples, len(data.pred_columns), prediction_length))

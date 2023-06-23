@@ -15,9 +15,6 @@ def main():
     from utils.early_stopper import EarlyStopper
     from training_scripts.results.performance import performance
     
-    # Check if we should kill this process
-    if os.path.isfile("results/exchange/stop.txt"):
-        exit()
     
     # Get environment variables
     process_id = int(os.environ["PBS_ARRAY_INDEX"])
@@ -95,23 +92,20 @@ def main():
             # Time at start of training
             trial_start = time.time()
             
-            rnn_hidden = int(parameters["rnn_hidden"]*train_data.shape[1])
-            residual_hidden = int((rnn_hidden + train_data.shape[1])*parameters["residual_hidden"])
-
             predictor = TimeFusion(
                 input_size = train_dataset.data.shape[1],
                 output_size = train_data.shape[1],
                 rnn_layers = parameters["rnn_layers"],
-                rnn_hidden = rnn_hidden,
+                rnn_hidden = parameters["rnn_hidden"],
                 residual_layers = parameters["residual_layers"],
-                residual_hidden = residual_hidden,
+                residual_hidden = parameters["residual_hidden"],
                 dropout = parameters["dropout"],
                 scaling = parameters["mean_scaler"],
+                residual_scaler = parameters["residual_scaler"],
                 device = device,
-                residual_scaler = parameters["residual_scaler"]
             )
 
-            optimizer = torch.optim.Adam(params=predictor.parameters(), lr=parameters["learning_rate"], weight_decay=parameters["weight_decay"])
+            optimizer = torch.optim.Adam(params=predictor.parameters(), lr=parameters["learning_rate"])
             lr_scheduler = torch.optim.lr_scheduler.LinearLR(optimizer, start_factor=1, end_factor=0.001, total_iters=200)
 
             predictor.train_network(
@@ -148,10 +142,7 @@ def main():
             # Get validation and test results and store in pandas dataframe
             for anchor_strength in [0,0.003,0.01,0.03]:
                 print(f"Anchor strength: {anchor_strength}")
-                 # Check if we should kill this process
-                if os.path.isfile("results/exchange/stop.txt"):
-                    exit()
-
+    
                 val_metrics = performance(
                     predictor = predictor,
                     data = val_dataset,
@@ -177,11 +168,8 @@ def main():
                 }
 
             # Save results in csv file
-            results.to_csv(f"results/exchange/{process_id}.csv", index=False)
+            results.to_csv(f"results/new_exchange/{process_id}.csv", index=False)
             
-            # Check if we should kill this process
-            if os.path.isfile("results/exchange/stop.txt"):
-                exit()
 
 if __name__ == "__main__":
     main()

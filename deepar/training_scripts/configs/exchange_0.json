@@ -1,0 +1,9 @@
+{
+    "num_layers": 1,
+    "num_cells": 30,
+    "likelihood": "gaussian",
+    "dropout_rate": 0.01,
+    "context_length": 1,
+    "learning_rate": 0.01,
+    "epochs": 200
+}
