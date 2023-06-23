@@ -7,7 +7,7 @@ import time
 from torch import nn, Tensor, optim
 from torch.utils.data import DataLoader
 from torch.optim.lr_scheduler import _LRScheduler
-from typing import List, Callable, Optional, Dict, Iterable
+from typing import List, Callable, Optional, Dict
 from tqdm import tqdm
 
 # Relative imports
@@ -27,6 +27,7 @@ class TimeFusion(nn.Module):
         rnn_hidden: int = 40,
         residual_layers: int = 2,
         residual_hidden: int = 100,
+        residual_scaler: bool = False,
         dropout: float = 0.0,
         scaling: bool = False,
         diff_steps: int = 100,
@@ -34,6 +35,22 @@ class TimeFusion(nn.Module):
         device: torch.device = torch.device("cpu"),
         **kwargs
     ):
+        
+        """
+        Args:
+            input_size: Number of input features, i.e. time-series dimension + convariates dimension
+            output_size: Number of output features, i.e. time-series dimension
+            rnn_layers: Number of RNN layers
+            rnn_hidden: Size of RNN hidden state
+            residual_layers: Number of residual layers
+            residual_hidden: Size of hidden layer in residual layers
+            residual_scaler: Whether to use a scaler or a linear layer at the beginning the residual layers
+            scaling: Whether to scale data using a MeanScaler
+            dropout: Dropout rate of RNN network
+            diff_steps: Number of diffusion steps
+            betas: List of beta values for each step of the diffusion process
+            device: Device to use for computation
+        """
         
         super().__init__()
 
@@ -60,6 +77,7 @@ class TimeFusion(nn.Module):
             rnn_hidden = rnn_hidden,
             residual_layers = residual_layers,
             residual_hidden = residual_hidden,
+            residual_scaler = residual_scaler,
             dropout=dropout,
             diff_steps = diff_steps,
             device = device,
@@ -71,19 +89,35 @@ class TimeFusion(nn.Module):
         return self.epsilon_theta(x, n, context, h)
 
     def train_network(self,
-        epochs: int,
         train_loader: DataLoader, 
+        epochs: int = 200,
         val_loader: Optional[DataLoader] = None,
         val_metrics: Dict[str,Callable] = {},
         loss_function: Callable = nn.MSELoss(),
         optimizer: optim.Optimizer = None,
         lr_scheduler: _LRScheduler = None,
-        early_stopper: EarlyStopper = None,
+        early_stopper: EarlyStopper = EarlyStopper(patience = 200),
         save_weights: bool = False,
         weight_folder: str = "weights",
         restore_weights: bool = True,
         disable_progress_bar: bool = False,
     ):
+        """
+        Args:
+            train_loader: DataLoader for training data
+            epochs: Number of epochs to train
+            val_loader: DataLoader for validation data
+            val_metrics: Dictionary of validation metrics
+            loss_function: Loss function to use for training
+            optimizer: Optimizer to use for training
+            lr_scheduler: Learning rate scheduler to use for training
+            early_stopper: Early stopper to use for training
+            save_weights: Whether to save the weights of the model
+            weight_folder: Folder to save the weights of the model
+            restore_weights: Whether to restore the best weights of the model after training
+            disable_progress_bar: Whether to disable the progress bar
+        """
+
         # Set the network into training mode
         self.train(True)
 
@@ -164,7 +198,6 @@ class TimeFusion(nn.Module):
                     break
 
         if not early_stopper is None and restore_weights:
-            print("Loading best weights!")
             self.load_state_dict(early_stopper.best_weights)
 
         if save_weights:
@@ -180,10 +213,20 @@ class TimeFusion(nn.Module):
         indices: List[int],
         prediction_length: int,
         num_samples: int = 1,
-        batch_size: int = 64,
         anchors: Tensor = None,
         anchor_strength: float = 0.01,
+        **kwargs
     ):
+        
+        """
+        Args:
+            data: Dataset to take context and covariate data from
+            indices: List of indices of input data to use as starting point for prediction
+            prediction_length: Number of time-steps to predict into the future
+            num_samples: Number of samples to draw at each index
+            anchors: Anchors to use for sampling
+            anchor_strength: Strength of anchoring in denoising process
+        """
 
         # Enter evaluation mode
         self.train(False)
