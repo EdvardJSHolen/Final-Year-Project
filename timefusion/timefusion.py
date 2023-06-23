@@ -190,56 +190,56 @@ class TimeFusion(nn.Module):
         if anchors is not None:
             anchors = anchors.to(self.device)
         
-        samples = torch.empty((len(indices), num_samples,len(data.pred_columns),prediction_length), dtype = torch.float32, device = self.device)
+        samples = torch.empty((len(indices) * num_samples,len(data.pred_columns),prediction_length), dtype = torch.float32, device = self.device)
 
-        for i, idx in enumerate(indices):
-            for pred_idx in range(prediction_length):
-                for batch_idx in range(0, num_samples, batch_size):
+        for pred_idx in range(prediction_length):
 
-                    # Get context Tensor at index
-                    context, covariates = data.get_sample_tensor(idx + pred_idx)
-                    context = context.to(self.device)
-                    covariates = covariates.to(self.device)
+            # Get context and covariates Tensors
+            context = []
+            covariates = []
+            for idx in indices:
+                tmp_context, tmp_covariates, _ = data[idx + pred_idx]
+                context.append(tmp_context.unsqueeze(0).repeat(num_samples,1,1))
+                covariates.append(tmp_covariates.unsqueeze(0).repeat(num_samples,1,1))                
+            context = torch.concat(context, dim = 0).to(self.device)
+            covariates = torch.concat(covariates, dim = 0).to(self.device)
 
-                    # Repeat context, covariates and anchors to give correct batch size
-                    context = context.unsqueeze(0).repeat(min(num_samples - batch_idx,batch_size),1,1)
-                    covariates = covariates.unsqueeze(0).repeat(min(num_samples - batch_idx,batch_size),1,1)
-                    if anchors is not None:
-                        anchors_copy = anchors[i,:,pred_idx,:].unsqueeze(0).repeat(min(num_samples - batch_idx,batch_size),1,1).detach().clone()
+            if anchors is not None:
+                anchors_copy = anchors[...,pred_idx,:].unsqueeze(1).repeat(1,num_samples,1,1).flatten(start_dim=0,end_dim=1).detach().clone()
 
-                    # Replace existing data into Tensor
-                    if pred_idx > 0:
-                        context[...,-pred_idx:] = samples[i,batch_idx:batch_idx+context.shape[0],:,max(0,pred_idx - context.shape[2]):pred_idx]
+            # Replace existing data into Tensor
+            if pred_idx > 0:
+                context[...,-pred_idx:] = samples[...,max(0,pred_idx - context.shape[2]):pred_idx]
 
-                    if self.scaling:
-                        context = self.scaler(context)
-                        if anchors is not None:
-                            anchors_copy = self.scaler(anchors_copy, update_scales = False)
+            if self.scaling:
+                context = self.scaler(context)
+                if anchors is not None:
+                    anchors_copy = self.scaler(anchors_copy, update_scales = False)
 
 
-                    # Sample initial white noise
-                    x = self.diffuser.initial_noise(
-                        shape = context.shape[:-1]
-                    )
+            # Sample initial white noise
+            x = self.diffuser.initial_noise(
+                shape = context.shape[:-1]
+            )
 
-                    # Denoising loop
-                    h = None
-                    for n in range(self.diff_steps,0,-1):
+            # Denoising loop
+            h = None
+            for n in range(self.diff_steps,0,-1):
 
-                        epsilon, h = self.forward(x, torch.full(context.shape[:1],n,device=self.device), torch.concat((context,covariates), dim = 1), h)
+                epsilon, h = self.forward(x, torch.full(context.shape[:1],n,device=self.device), torch.concat((context,covariates), dim = 1), h)
 
-                        x = self.diffuser.denoise(
-                            x = x,
-                            epsilon = epsilon,
-                            n = n,
-                            anchors = anchors_copy if anchors is not None else None,
-                            anchor_strength = anchor_strength
-                        )
+                x = self.diffuser.denoise(
+                    x = x,
+                    epsilon = epsilon,
+                    n = n,
+                    anchors = anchors_copy if anchors is not None else None,
+                    anchor_strength = anchor_strength
+                )
 
-                    if self.scaling:
-                        x = self.scaler.unscale(x)
+            if self.scaling:
+                x = self.scaler.unscale(x)
 
-                    # Store denoised samples
-                    samples[i,batch_idx:batch_idx+context.shape[0],:,pred_idx] = x.detach().clone()
+            # Store denoised samples
+            samples[...,pred_idx] = x.detach().clone()
 
-        return samples
+        return samples.reshape((len(indices), num_samples, len(data.pred_columns), prediction_length))

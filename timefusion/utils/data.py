@@ -55,6 +55,7 @@ class TimeFusionDataset(Dataset):
         # Update list of covariate columns
         self.cov_columns = list(set(self.data.columns) - set(self.pred_columns))
 
+    # This function can be removed
     def get_sample_tensor(self, idx: int) -> Tensor:
         context = self.tensor_data[idx:idx + self.context_length, self.pred_columns].T.detach().clone()
         covariates = self.tensor_data[idx:idx + self.context_length, self.cov_columns].T.detach().clone()
